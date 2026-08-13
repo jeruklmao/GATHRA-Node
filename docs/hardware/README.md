@@ -39,7 +39,7 @@ The 5 V rail is powered independently of ESP deep sleep. There is no sensor-rail
 
 R1 is 10 kΩ from battery positive to the ADC node; R2 is 5 kΩ from the ADC node to ground. Nominal battery voltage is therefore `calibrated ADC mV × 3`. Firmware takes nine calibrated millivolt samples, discards two at each tail, averages the centre five, then applies the editable multiplier and offset.
 
-Connected-board validation repeatedly observed only 0–1 mV at GPIO0 (raw code 1–2), which is not plausible for a powered battery through this divider. The production pin remains GPIO0. Before field use, measure battery terminals and the divider midpoint against ESP ground, then inspect R1/R2, shared ground, and midpoint-to-GPIO0 continuity. See `../testing.md` for the evidence.
+Battery-only connected-board validation passed on GPIO0. Five consecutive production measurements reported raw ADC 1760–1768, divider voltage 1302–1305 mV, and reconstructed battery voltage 3906–3915 mV using the default factor 1.0 and offset 0 mV. Earlier near-zero readings were taken with the battery intentionally disconnected while USB powered the ESP32 and therefore do not indicate a divider fault. See `../testing.md` for the evidence.
 
 ## Button note
 

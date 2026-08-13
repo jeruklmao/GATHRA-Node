@@ -96,6 +96,6 @@ All are dashboard-editable except physical pins and the AP password.
 
 v1 does not provide LoRa HMAC/node authentication, gateway hardware, backend ingestion, or end-to-end gateway ACK validation. Radio CRC detects transmission errors but is not authentication. Measurement/filter history is intentionally RTC-retained only: it survives deep sleep, not power loss, hard reset, or reflashing.
 
-Connected-board validation found the required GPIO0 battery-divider input electrically near zero (raw ADC 1–2, 0–1 mV) despite the powered assembly. Firmware reports `BATTERY_ADC_INVALID` and does not move the input or hide it with calibration. Inspect the divider/common-ground path before deployment; details and meter checkpoints are in [testing](docs/testing.md) and [hardware](docs/hardware/README.md).
+Battery-only validation passes on the required GPIO0 divider input. Five consecutive production measurements reported raw ADC 1760–1768, divider voltage 1302–1305 mV, and reconstructed battery voltage 3906–3915 mV, with the `BATTERY_ADC_INVALID`, `BATTERY_LOW`, and `BATTERY_CRITICAL` flags all clear. Earlier near-zero USB-powered readings occurred while the battery was intentionally disconnected to prevent a power-rail conflict; they were not evidence of a wiring fault.
 
 Further details: [architecture](docs/architecture.md), [hardware](docs/hardware/README.md), [protocol](docs/protocol.md), [dashboard](docs/dashboard.md), [calibration](docs/calibration.md), [testing](docs/testing.md), and [OTA](docs/ota.md).

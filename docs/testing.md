@@ -24,7 +24,7 @@ The final clean production build passes with 885,144 bytes used from a 1,900,544
 |---|---|---|
 | board discovery and USB flash | PASS | esptool identified ESP32-C3 rev 0.4, MAC above, 4 MB XMC flash; image/hash upload completed |
 | production boot and serial | PASS | firmware logged `1.0.0 build=production`, reset/wake reasons, NVS/RTC/OTA state at 115200 baud |
-| battery ADC | FAIL — hardware finding | repeated production reads on required GPIO0 were raw ADC 1–2, calibrated 0–1 mV, estimated battery 0–3 mV, `adcValid=false`; expected divider midpoint is approximately one-third of battery voltage |
+| battery ADC | PASS | battery-only power: five production reads were raw ADC 1760–1768, calibrated divider 1302–1305 mV, reconstructed battery 3906–3915 mV (mean 3910 mV), all `adcValid=true`; low/critical bits clear |
 | DHT22 | PASS | repeated compensated readings, e.g. 32.9 °C and 67.8% RH |
 | HY-SRF05 ISR/burst/MAD | PASS | repeated 7/7 bursts; each logged one rising/one falling edge; examples 1718 mm/MAD 4 and 1691 mm/MAD 0 |
 | filter/history diagnostics | PASS | raw and accepted values exposed independently; calibration-unconfigured height was `null`; post-sleep 1721 mm classified `STABLE` against retained 1722 mm |
@@ -41,16 +41,19 @@ The final clean production build passes with 885,144 bytes used from a 1,900,544
 | bootloader rollback | PASS | rollback-test booted on `ota_0` as `PENDING_VERIFY`, intentionally restarted before validation, then bootloader returned to `production` on valid `ota_1` |
 | gateway ACK end-to-end | BLOCKED | no gateway hardware exists; codec/matching are host-tested and node RX timeout is HIL-tested only |
 
-## Hardware finding: battery divider input
+## Battery-only follow-up
 
-The firmware retains the source-of-truth GPIO0 assignment and does not substitute a pin. A powered battery through the documented 10 kΩ/5 kΩ network should produce an ADC node near `Vbattery / 3`; observed 0–1 mV is electrically implausible for that path. Inspect with a meter:
+The earlier USB-powered validation produced raw ADC 1–2 and 0–1 mV because the battery was intentionally disconnected to prevent a USB/battery rail conflict. After switching to battery-only power, the immutable GPIO0 path produced a stable, plausible result across five independent production acquisitions:
 
-1. battery voltage directly at its terminals;
-2. divider midpoint relative to ESP32 ground (expected approximately one-third of terminal voltage);
-3. R1 continuity from battery positive to midpoint and R2 from midpoint to ground;
-4. common ground and midpoint-to-GPIO0 solder/connector continuity.
+| Sample | Raw ADC | Divider mV | Battery mV | Valid |
+|---:|---:|---:|---:|:---:|
+| 1 | 1767 | 1302 | 3906 | yes |
+| 2 | 1768 | 1305 | 3915 | yes |
+| 3 | 1767 | 1304 | 3912 | yes |
+| 4 | 1767 | 1304 | 3912 | yes |
+| 5 | 1760 | 1302 | 3906 | yes |
 
-Do not compensate this result with the dashboard factor/offset; those controls are for calibration, not a missing electrical signal.
+Configuration readback confirmed nominal calibration factor 1.0, offset 0 mV, low threshold 3500 mV, and critical threshold 3300 mV. No battery health bit was set. The previous hardware-fault hypothesis is withdrawn.
 
 ## Commands exercised
 
