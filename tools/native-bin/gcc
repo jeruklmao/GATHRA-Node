@@ -1,0 +1,3 @@
+#!/bin/sh
+platformio_python="${PLATFORMIO_CORE_DIR:-${HOME}/.platformio}/penv/bin/python"
+exec "${platformio_python}" -m ziglang cc "$@"
