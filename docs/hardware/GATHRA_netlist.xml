@@ -1,0 +1,355 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Fritzing (https://fritzing.org/) -->
+<netlist date="2026-08-13T09:07:37" sketch="GATHRA.fzz">
+ <net>
+  <connector id="connector0" name="-">
+   <part id="84410" label="18650 Battery" title="Battery"/>
+   <erc etype="ground">
+    <current flow="sink" valueMax="0.1"/>
+   </erc>
+  </connector>
+  <connector id="connector7" name="Pin 8">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector1" name="Pin 2">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector3" name="Pin 4">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector9" name="Pin 10">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector4" name="Pin 5">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector0" name="Pin 1">
+   <part id="103400" label="A3" title="mini boost module"/>
+  </connector>
+  <connector id="connector1" name="Pin 1">
+   <part id="184900" label="R2" title="5kΩ Resistor"/>
+  </connector>
+  <connector id="connector1" name="-">
+   <part id="85330" label="6V Solar Panel" title="Small 6V Solar Panel"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector6" name="Pin 7">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector5" name="Pin 6">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector8" name="Pin 9">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector1" name="Pin 2">
+   <part id="103400" label="A3" title="mini boost module"/>
+  </connector>
+  <connector id="connector1" name="+">
+   <part id="84410" label="18650 Battery" title="Battery"/>
+   <erc etype="VCC">
+    <current flow="source" valueMax="0.1"/>
+    <voltage value="3"/>
+   </erc>
+  </connector>
+  <connector id="connector0" name="Pin 0">
+   <part id="184870" label="R1" title="10kΩ Resistor"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector0" name="+">
+   <part id="85330" label="6V Solar Panel" title="Small 6V Solar Panel"/>
+  </connector>
+  <connector id="connector0" name="Pin 1">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+  <connector id="connector2" name="Pin 3">
+   <part id="61560" label="A2" title="CN3065 Mini Solar Charger Module"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector8" name="Pin 9">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+  <connector id="connector1" name="Pin 1">
+   <part id="184870" label="R1" title="10kΩ Resistor"/>
+  </connector>
+  <connector id="connector0" name="Pin 0">
+   <part id="184900" label="R2" title="5kΩ Resistor"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector2" name="Pin 3">
+   <part id="103400" label="A3" title="mini boost module"/>
+  </connector>
+  <connector id="connector14" name="Pin 15">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="149510" label="Ground1" title="Ground"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="150920" label="Ground2" title="Ground"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="155660" label="Ground3" title="Ground"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="167560" label="Ground4" title="Ground"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="171610" label="Ground5" title="Ground"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="171850" label="Ground6" title="Ground"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="855137170" label="Ground7" title="Ground"/>
+  </connector>
+  <connector id="connector0" name="GND">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector1" name="Pin 2">
+   <part id="855135970" label="S1" title="Pushbutton"/>
+  </connector>
+  <connector id="connector1" name="GND">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector8" name="GND">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector15" name="GND">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector0" name="Pin 1">
+   <part id="855135970" label="S1" title="Pushbutton"/>
+  </connector>
+  <connector id="connector4" name="GND">
+   <part id="61510" label="DHT1" title="DHT22 Humidity and Temperature Sensor"/>
+  </connector>
+  <connector id="connector12" name="GND">
+   <part id="58750" label="Part1" title="HY-SRF05 Ultrasonic Rangefinder"/>
+  </connector>
+  <connector id="connector2" name="GND">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector9" name="GND">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector3" name="Pin 4">
+   <part id="103400" label="A3" title="mini boost module"/>
+  </connector>
+  <connector id="connector15" name="Pin 16">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+  <connector id="connector0" name="pin one">
+   <part id="154230" label="+5V " title="Net Label"/>
+  </connector>
+  <connector id="connector0" name="pin one">
+   <part id="149570" label="+5V " title="Net Label"/>
+  </connector>
+  <connector id="connector0" name="pin one">
+   <part id="170700" label="+5V " title="Net Label"/>
+  </connector>
+  <connector id="connector0" name="pin one">
+   <part id="170310" label="+5V " title="Net Label"/>
+  </connector>
+  <connector id="connector0" name="pin one">
+   <part id="167060" label="+5V " title="Net Label"/>
+  </connector>
+  <connector id="connector8" name="Vcc">
+   <part id="58750" label="Part1" title="HY-SRF05 Ultrasonic Rangefinder"/>
+  </connector>
+  <connector id="connector8" name="HV">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector1" name="VDD">
+   <part id="61510" label="DHT1" title="DHT22 Humidity and Temperature Sensor"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector6" name="HV1">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector10" name="Echo">
+   <part id="58750" label="Part1" title="HY-SRF05 Ultrasonic Rangefinder"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector7" name="HV2">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector9" name="Trig">
+   <part id="58750" label="Part1" title="HY-SRF05 Ultrasonic Rangefinder"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector10" name="HV3">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector2" name="DATA">
+   <part id="61510" label="DHT1" title="DHT22 Humidity and Temperature Sensor"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector0" name="pin one">
+   <part id="164020" label="+3.3V" title="Net Label"/>
+  </connector>
+  <connector id="connector3" name="LV">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector0" name="pin one">
+   <part id="160710" label="+3.3V" title="Net Label"/>
+  </connector>
+  <connector id="connector0" name="pin one">
+   <part id="154900" label="+3.3V" title="Net Label"/>
+  </connector>
+  <connector id="connector2" name="3.3V">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector13" name="Pin 14">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector7" name="Pin 8">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+  <connector id="connector5" name="LV1">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector4" name="LV2">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector6" name="Pin 7">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector1" name="LV3">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+  <connector id="connector5" name="Pin 6">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector9" name="Pin 10">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+  <connector id="connector3" name="RST">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector11" name="Pin 12">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+  <connector id="connector4" name="DIO0">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector12" name="Pin 13">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+  <connector id="connector11" name="SCK">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector14" name="NSS">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector2" name="Pin 3">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector13" name="MOSI">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector1" name="Pin 2">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector12" name="MISO">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+  <connector id="connector0" name="Pin 1">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector3" name="Pin 4">
+   <part id="855135970" label="S1" title="Pushbutton"/>
+  </connector>
+  <connector id="connector2" name="Pin 3">
+   <part id="855135970" label="S1" title="Pushbutton"/>
+  </connector>
+  <connector id="connector10" name="Pin 11">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector3" name="NULL">
+   <part id="61510" label="DHT1" title="DHT22 Humidity and Temperature Sensor"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector4" name="Pin 5">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector3" name="Pin 4">
+   <part id="58700" label="A1" title="Esp32-c3 super mini"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector11" name="OUT">
+   <part id="58750" label="Part1" title="HY-SRF05 Ultrasonic Rangefinder"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector6" name="DIO2">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector7" name="DIO3">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector9" name="DIO4">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector5" name="DIO1">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector10" name="DIO5">
+   <part id="85080" label="M1" title="Osoyoo SX1278-ra-02"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector0" name="LV4">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+ </net>
+ <net>
+  <connector id="connector11" name="HV4">
+   <part id="111440" label="Part3" title="I2C level shifter bidirectional"/>
+  </connector>
+ </net>
+</netlist>
