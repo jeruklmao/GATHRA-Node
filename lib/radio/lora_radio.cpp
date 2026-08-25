@@ -6,6 +6,7 @@
 
 #include "board_pins.hpp"
 #include "build_config.hpp"
+#include "esp32-hal.h"
 #include "esp_system.h"
 #include "logger.hpp"
 #include "retry_policy.hpp"
@@ -15,6 +16,18 @@ namespace {
 
 volatile bool gRadioIrq = false;
 void IRAM_ATTR radioInterrupt() { gRadioIrq = true; }
+
+void watchdogAwareDelay(uint32_t durationMs) {
+  const uint32_t started = millis();
+  do {
+    // LoRa time-on-air plus the ACK window can legitimately span several
+    // seconds at SF10.  The loop task remains healthy and must explicitly
+    // report that progress to the watchdog while this synchronous operation
+    // yields to the scheduler.
+    feedLoopWDT();
+    delay(1);
+  } while (millis() - started < durationMs);
+}
 
 }  // namespace
 
@@ -63,7 +76,10 @@ bool LoraRadio::transmit(const uint8_t* data, size_t length) {
   const uint32_t started = millis();
   uint32_t timeoutMs = radio_.getTimeOnAir(length) / 1000U + 1500U;
   if (timeoutMs < 2500U) timeoutMs = 2500U;
-  while (!gRadioIrq && millis() - started < timeoutMs) delay(1);
+  while (!gRadioIrq && millis() - started < timeoutMs) {
+    feedLoopWDT();
+    delay(1);
+  }
   if (!gRadioIrq) {
     (void)radio_.standby();
     lastCode_ = RADIOLIB_ERR_TX_TIMEOUT;
@@ -75,14 +91,18 @@ bool LoraRadio::transmit(const uint8_t* data, size_t length) {
 }
 
 bool LoraRadio::waitForMatchingAck(const protocol::TelemetryPacket& telemetry,
-                                   uint16_t timeoutMs, TxReport& report) {
+                                   uint16_t timeoutMs, TxReport& report,
+                                   protocol::AckCommandPacket* receivedAck) {
   gRadioIrq = false;
   radio_.clearPacketSentAction();
   radio_.setPacketReceivedAction(radioInterrupt);
   lastCode_ = radio_.startReceive();
   if (lastCode_ != RADIOLIB_ERR_NONE) return false;
   const uint32_t started = millis();
-  while (!gRadioIrq && millis() - started < timeoutMs) delay(1);
+  while (!gRadioIrq && millis() - started < timeoutMs) {
+    feedLoopWDT();
+    delay(1);
+  }
   if (!gRadioIrq) {
     (void)radio_.standby();
     GTH_LOGW("RADIO", "ACK timeout after %u ms", timeoutMs);
@@ -103,19 +123,23 @@ bool LoraRadio::waitForMatchingAck(const protocol::TelemetryPacket& telemetry,
   }
   report.lastRssi = radio_.getRSSI();
   report.lastSnr = radio_.getSNR();
-  protocol::AckPacket ack{};
-  const protocol::DecodeStatus decode = protocol::decodeAck(buffer, packetLength, ack);
+  protocol::AckCommandPacket ack{};
+  const protocol::DecodeStatus decode =
+      protocol::decodeAckCommand(buffer, packetLength, ack);
   const bool matches = decode == protocol::DecodeStatus::kOk &&
                        protocol::ackMatches(ack, telemetry);
   GTH_LOGI("RADIO", "ACK received decode=%s match=%s RSSI=%.1f SNR=%.1f",
            protocol::decodeStatusName(decode), matches ? "yes" : "no",
            report.lastRssi, report.lastSnr);
+  if (matches && receivedAck != nullptr) *receivedAck = ack;
   return matches;
 }
 
 TxReport LoraRadio::sendTelemetry(const protocol::TelemetryPacket& telemetry,
-                                  const NodeConfig& config) {
+                                  const NodeConfig& config,
+                                  protocol::AckCommandPacket* receivedAck) {
   TxReport report{};
+  if (receivedAck != nullptr) *receivedAck = protocol::AckCommandPacket{};
   report.radioReady = ready_;
   if (!ready_ && !begin(config)) {
     report.lastRadioCode = lastCode_;
@@ -138,7 +162,8 @@ TxReport LoraRadio::sendTelemetry(const protocol::TelemetryPacket& telemetry,
       GTH_LOGW("RADIO", "TX failed attempt=%u code=%d", report.attempts, lastCode_);
     } else {
       report.transmitted = true;
-      if (waitForMatchingAck(telemetry, config.ackTimeoutMs, report)) {
+      if (waitForMatchingAck(telemetry, config.ackTimeoutMs, report,
+                             receivedAck)) {
         retries.acknowledge();
         report.acknowledged = true;
         break;
@@ -147,7 +172,7 @@ TxReport LoraRadio::sendTelemetry(const protocol::TelemetryPacket& telemetry,
     if (!retries.exhausted()) {
       const uint32_t backoffMs = 100U + (esp_random() % 251U);
       GTH_LOGW("RADIO", "retry backoff=%lu ms", static_cast<unsigned long>(backoffMs));
-      delay(backoffMs);
+      watchdogAwareDelay(backoffMs);
     }
   }
   (void)radio_.standby();
@@ -156,6 +181,25 @@ TxReport LoraRadio::sendTelemetry(const protocol::TelemetryPacket& telemetry,
     GTH_LOGW("RADIO", "telemetry unacknowledged after %u attempt(s)", report.attempts);
   }
   return report;
+}
+
+bool LoraRadio::sendCommandResult(const protocol::CommandResultPacket& result) {
+  if (!ready_) return false;
+  uint8_t payload[build::kRadioPacketCapacity]{};
+  size_t length = 0;
+  if (!protocol::encodeCommandResult(result, payload, sizeof(payload), length)) {
+    GTH_LOGE("RADIO", "COMMAND_RESULT encoding failed id=%lu",
+             static_cast<unsigned long>(result.commandId));
+    return false;
+  }
+  const bool sent = transmit(payload, length);
+  (void)radio_.standby();
+  GTH_LOGI("RADIO", "COMMAND_RESULT id=%lu type=%s result=%s bytes=%u sent=%s",
+           static_cast<unsigned long>(result.commandId),
+           protocol::commandTypeName(result.commandType),
+           protocol::commandResultName(result.resultCode),
+           static_cast<unsigned>(length), sent ? "yes" : "no");
+  return sent;
 }
 
 void LoraRadio::sleep() {

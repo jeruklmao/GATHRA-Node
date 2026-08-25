@@ -19,7 +19,8 @@ enum class AppState : uint8_t {
   kVerify,
   kTransmit,
   kMaintenance,
-  kSleep,
+  kPowerOff,
+  kFault,
 };
 
 enum class FilterState : uint8_t {
@@ -108,7 +109,7 @@ struct BatteryReading {
 };
 
 struct Measurement {
-  uint32_t bootSessionId = 0;
+  uint32_t persistentSessionId = 0;
   uint32_t sequence = 0;
   SonarBurst sonar{};
   EnvironmentReading environment{};
@@ -129,6 +130,7 @@ struct TxReport {
   int16_t lastRadioCode = 0;
   float lastRssi = NAN;
   float lastSnr = NAN;
+  bool commandResultTransmitted = false;
 };
 
 const char* appStateName(AppState state);

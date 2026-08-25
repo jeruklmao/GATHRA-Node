@@ -13,8 +13,6 @@ class OtaManager {
   const char* runningPartition() const { return runningPartition_; }
   const char* imageStateName() const { return imageStateName_; }
   const char* lastStatus() const { return lastStatus_; }
-  static void requestMaintenanceAfterReboot();
-  static bool takeMaintenanceAfterRebootRequest();
 
  private:
   bool pendingVerification_ = false;

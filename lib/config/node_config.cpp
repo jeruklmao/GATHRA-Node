@@ -50,10 +50,9 @@ ConfigValidationResult validateConfig(const NodeConfig& c) {
   if (!nodeIdValid(c.nodeId)) {
     return fail(ConfigValidationCode::kNodeId, "nodeId must be 1-24 ASCII letters, digits, '-' or '_'");
   }
-  if (c.normalWakeIntervalSec < 15U || c.normalWakeIntervalSec > 86400U ||
-      c.changingWakeIntervalSec < 2U || c.changingWakeIntervalSec > 3600U ||
-      c.changingWakeIntervalSec >= c.normalWakeIntervalSec) {
-    return fail(ConfigValidationCode::kWakeInterval, "wake interval is outside the safe range");
+  if (c.pollIntervalMinutes < 1U) {
+    return fail(ConfigValidationCode::kWakeInterval,
+                "poll interval must be 1-255 minutes");
   }
   if (c.sonarBurstCount < 3U || c.sonarBurstCount > build::kMaximumSonarSamples ||
       c.sonarMinimumValid == 0U || c.sonarMinimumValid > c.sonarBurstCount ||
@@ -112,10 +111,22 @@ ConfigValidationResult validateConfig(const NodeConfig& c) {
   if (c.ackTimeoutMs < 500U || c.ackTimeoutMs > 10000U || c.ackRetryCount > 2U) {
     return fail(ConfigValidationCode::kAck, "ACK timeout must be 500-10000 ms and retries 0-2");
   }
-  if (c.maintenanceTimeoutSec < 60U || c.maintenanceTimeoutSec > 3600U) {
-    return fail(ConfigValidationCode::kMaintenance, "maintenance timeout must be 60-3600 seconds");
+  if (c.maintenanceTimeoutSec < 60U ||
+      c.maintenanceTimeoutSec > build::kMaintenanceMaximumSec) {
+    return fail(ConfigValidationCode::kMaintenance,
+                "maintenance timeout must be 60-300 seconds");
   }
   return {};
+}
+
+uint8_t pollMinutesFromLegacySeconds(uint32_t seconds) {
+  // Round upward so migration never wakes more frequently than the old
+  // interval requested, then clamp to the PCF8563 8-bit minute timer.
+  uint32_t minutes = seconds == 0U
+                         ? 1U
+                         : seconds / 60U + (seconds % 60U == 0U ? 0U : 1U);
+  if (minutes > 255U) minutes = 255U;
+  return static_cast<uint8_t>(minutes);
 }
 
 bool radioConfigEqual(const NodeConfig& a, const NodeConfig& b) {

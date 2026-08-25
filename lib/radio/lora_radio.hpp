@@ -15,7 +15,9 @@ class LoraRadio {
   bool begin(const NodeConfig& config);
   bool applyConfig(const NodeConfig& config);
   TxReport sendTelemetry(const protocol::TelemetryPacket& telemetry,
-                         const NodeConfig& config);
+                         const NodeConfig& config,
+                         protocol::AckCommandPacket* receivedAck = nullptr);
+  bool sendCommandResult(const protocol::CommandResultPacket& result);
   void sleep();
   bool ready() const { return ready_; }
   int16_t lastCode() const { return lastCode_; }
@@ -23,7 +25,8 @@ class LoraRadio {
  private:
   bool transmit(const uint8_t* data, size_t length);
   bool waitForMatchingAck(const protocol::TelemetryPacket& telemetry,
-                          uint16_t timeoutMs, TxReport& report);
+                          uint16_t timeoutMs, TxReport& report,
+                          protocol::AckCommandPacket* receivedAck);
 
   Module module_;
   SX1278 radio_;

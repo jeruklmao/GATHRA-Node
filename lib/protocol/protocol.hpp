@@ -10,11 +10,55 @@ namespace gathra::protocol {
 
 inline constexpr uint8_t kMagic0 = 0x47;  // G
 inline constexpr uint8_t kMagic1 = 0x54;  // T
-inline constexpr uint8_t kVersion = 1;
+inline constexpr uint8_t kVersion = 2;
+inline constexpr uint8_t kAckTimeValid = 1U << 0;
 
 enum class MessageType : uint8_t {
-  kTelemetry = 1,
-  kAck = 2,
+  kTelemetry = 0x01,
+  kAckCommand = 0x02,
+  kCommandResult = 0x03,
+};
+
+enum class BootReason : uint8_t {
+  kRtcTimer = 0,
+  kRtcScheduledMaintenance = 1,
+  kManualButton = 2,
+  kMaintenanceReboot = 3,
+  kOtaReboot = 4,
+  kUnknown = 5,
+};
+
+enum class RtcState : uint8_t {
+  kValid = 0,
+  kInvalidVl = 1,
+  kUninitialized = 2,
+  kI2cError = 3,
+};
+
+enum class ScheduleState : uint8_t {
+  kNone = 0,
+  kPending = 1,
+  kCompleted = 2,
+  kFailed = 3,
+};
+
+enum class CommandType : uint8_t {
+  kNone = 0,
+  kEnterMaintenanceNow = 1,
+  kScheduleMaintenanceAt = 2,
+  kSetPollIntervalMinutes = 3,
+};
+
+enum class CommandResultCode : uint8_t {
+  kApplied = 0,
+  kAlreadyApplied = 1,
+  kInvalidArgument = 2,
+  kRtcUnavailable = 3,
+  kRtcTimeUntrusted = 4,
+  kScheduleUnrepresentable = 5,
+  kStorageError = 6,
+  kInternalError = 7,
+  kNone = 0xFF,
 };
 
 enum class DecodeStatus : uint8_t {
@@ -24,12 +68,15 @@ enum class DecodeStatus : uint8_t {
   kUnsupportedVersion,
   kWrongType,
   kInvalidNodeId,
+  kInvalidEnum,
+  kInvalidFlags,
+  kInvalidCommand,
   kTrailingData,
 };
 
 struct TelemetryPacket {
   char nodeId[build::kNodeIdCapacity]{};
-  uint32_t bootSessionId = 0;
+  uint32_t persistentSessionId = 0;
   uint32_t sequence = 0;
   uint32_t medianEchoUs = 0;
   uint32_t rawDistanceMm = kDistanceUnavailable;
@@ -43,22 +90,58 @@ struct TelemetryPacket {
   FilterState filterState = FilterState::kInvalid;
   uint16_t qualityFlags = 0;
   uint16_t healthFlags = 0;
+  BootReason bootReason = BootReason::kUnknown;
+  RtcState rtcState = RtcState::kUninitialized;
+  uint32_t rtcUnixTime = 0;
+  uint8_t pollIntervalMinutes = 10;
+  ScheduleState scheduleState = ScheduleState::kNone;
+  uint32_t scheduledMaintenanceUnix = 0;
+  uint32_t lastCommandId = 0;
+  CommandType lastCommandType = CommandType::kNone;
+  CommandResultCode lastCommandResult = CommandResultCode::kNone;
 };
 
-struct AckPacket {
+struct AckCommandPacket {
   char nodeId[build::kNodeIdCapacity]{};
-  uint32_t bootSessionId = 0;
+  uint32_t persistentSessionId = 0;
   uint32_t sequence = 0;
+  uint32_t gatewayUnixTime = 0;
+  bool timeValid = false;
+  uint32_t commandId = 0;
+  CommandType commandType = CommandType::kNone;
+  uint8_t pollIntervalMinutes = 0;
+  uint32_t scheduledMaintenanceUnix = 0;
 };
 
+struct CommandResultPacket {
+  char nodeId[build::kNodeIdCapacity]{};
+  uint32_t persistentSessionId = 0;
+  uint32_t commandId = 0;
+  CommandType commandType = CommandType::kNone;
+  CommandResultCode resultCode = CommandResultCode::kInternalError;
+  uint8_t effectivePollIntervalMinutes = 0;
+  uint32_t scheduledMaintenanceUnix = 0;
+};
+
+bool nodeIdValid(const char* nodeId);
 bool encodeTelemetry(const TelemetryPacket& packet, uint8_t* output,
                      size_t capacity, size_t& written);
 DecodeStatus decodeTelemetry(const uint8_t* input, size_t length,
                              TelemetryPacket& packet);
-bool encodeAck(const AckPacket& packet, uint8_t* output, size_t capacity,
-               size_t& written);
-DecodeStatus decodeAck(const uint8_t* input, size_t length, AckPacket& packet);
-bool ackMatches(const AckPacket& ack, const TelemetryPacket& telemetry);
+bool encodeAckCommand(const AckCommandPacket& packet, uint8_t* output,
+                      size_t capacity, size_t& written);
+DecodeStatus decodeAckCommand(const uint8_t* input, size_t length,
+                              AckCommandPacket& packet);
+bool encodeCommandResult(const CommandResultPacket& packet, uint8_t* output,
+                         size_t capacity, size_t& written);
+DecodeStatus decodeCommandResult(const uint8_t* input, size_t length,
+                                 CommandResultPacket& packet);
+bool ackMatches(const AckCommandPacket& ack, const TelemetryPacket& telemetry);
 const char* decodeStatusName(DecodeStatus status);
+const char* bootReasonName(BootReason reason);
+const char* rtcStateName(RtcState state);
+const char* scheduleStateName(ScheduleState state);
+const char* commandTypeName(CommandType type);
+const char* commandResultName(CommandResultCode result);
 
 }  // namespace gathra::protocol

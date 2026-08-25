@@ -1,74 +1,76 @@
-# Validation record
+# Node testing
 
-This record separates observed hardware evidence from implementation and host tests. It does not claim a gateway or physical-button actuation that was unavailable.
+## Automated
 
-## Toolchain and board inventory
+Run:
 
-- PlatformIO Core 6.1.19; `espressif32@7.0.1`
-- Arduino-ESP32 package `3.20017.241212` (upstream 2.0.17), ESP-IDF 4.4.x
-- RadioLib 7.7.1; ArduinoJson 7.4.2; DHT 1.4.7; Unified Sensor 1.1.15
-- ESP32-C3 rev 0.4, USB Serial/JTAG, MAC `10:00:3B:D4:BC:FC`
-- embedded XMC flash detected by esptool: 4 MB
-- development serial device: `/dev/ttyACM0` (rediscover with `pio device list`)
-- AP HIL used Realtek RTL8188EUS `wlp0s20f0u1`; Intel PCI `wlp0s20f3` remained on the internet WLAN and was not used for node testing
-
-## Automated logic and build
-
-`tools/run-native-tests.sh` passes 11/11 Unity tests. Coverage includes deterministic big-endian telemetry, invalid protocol framing, ACK codec/matching/rejection, bounded retries, median/MAD, transient rejection, persistent rise/fall confirmation, zero-MAD behavior, invalid measurements, configuration range validation, and retained-ring empty/fill/wrap/schema reset.
-
-The final clean production build passes with 885,144 bytes used from a 1,900,544-byte OTA slot (46.6%) and 50,644 bytes static RAM from 327,680 bytes (15.5%). The custom table fits the detected 4 MB flash and contains two equal OTA slots and a 64 KiB core-dump partition.
-
-## HIL results
-
-| Area | Status | Observed evidence |
-|---|---|---|
-| board discovery and USB flash | PASS | esptool identified ESP32-C3 rev 0.4, MAC above, 4 MB XMC flash; image/hash upload completed |
-| production boot and serial | PASS | firmware logged `1.0.0 build=production`, reset/wake reasons, NVS/RTC/OTA state at 115200 baud |
-| battery ADC | PASS | battery-only power: five production reads were raw ADC 1760–1768, calibrated divider 1302–1305 mV, reconstructed battery 3906–3915 mV (mean 3910 mV), all `adcValid=true`; low/critical bits clear |
-| DHT22 | PASS | repeated compensated readings, e.g. 32.9 °C and 67.8% RH |
-| HY-SRF05 ISR/burst/MAD | PASS | repeated 7/7 bursts; each logged one rising/one falling edge; examples 1718 mm/MAD 4 and 1691 mm/MAD 0 |
-| filter/history diagnostics | PASS | raw and accepted values exposed independently; calibration-unconfigured height was `null`; post-sleep 1721 mm classified `STABLE` against retained 1722 mm |
-| SX1278 initialization/TX | PASS | initialized at 433 MHz, 125 kHz, SF10, CR4/6, 17 dBm, sync `0x12`; transmitted 56-byte v1 payloads |
-| bounded missing ACK | PASS | each manual/autonomous test logged exactly three attempts with 1800 ms receive windows and randomized backoff, then slept/returned without hanging |
-| deep sleep and RTC retention | PASS | timer and GPIO wake setup returned `ESP_OK`; timer wakes observed; session/sequence/history survived deep sleep and sequence advanced 1→2 |
-| maintenance SoftAP | PASS | WPA2 SSID `GATHRA-NODE-GTH-10003BD4BCFC`, BSSID `10:00:3B:D4:BC:FD`, 192.168.4.1; Realtek client received 192.168.4.2 |
-| offline dashboard/API | PASS | root returned HTTP 200 with local HTML/CSS/JS/canvas and no CDN; status/config/history/log APIs, Measure Now, calibration, radio test, reboot, and deferred Exit response exercised |
-| config/NVS | PASS | SF13 returned HTTP 422; 301-second candidate saved, survived reboot, and was restored to required 300 seconds; numeric parsing now rejects overflow before narrowing |
-| calibration | PASS | stable 1718 mm capture produced derived 0 mm; clearing restored unconfigured reference and `null` height |
-| inactivity policy | PASS | with temporary 60-second test value, passive status polls returned 200 through 55 s but AP shut down at 60 s; NVS was restored and read back as 300 s |
-| physical button wake/long press | NOT TESTED | no physical actuator was available; production GPIO2 debounce, ISR latch, active-low wake, long-press, and release-before-sleep paths are implemented |
-| valid OTA upload and boot validation | PASS | multipart HTTP uploaded 930,544-byte production image; `ota_1` booted `PENDING_VERIFY`, application checks marked it `VALID`, and durable one-shot returned to maintenance |
-| bootloader rollback | PASS | rollback-test booted on `ota_0` as `PENDING_VERIFY`, intentionally restarted before validation, then bootloader returned to `production` on valid `ota_1` |
-| gateway ACK end-to-end | BLOCKED | no gateway hardware exists; codec/matching are host-tested and node RX timeout is HIL-tested only |
-
-## Battery-only follow-up
-
-The earlier USB-powered validation produced raw ADC 1–2 and 0–1 mV because the battery was intentionally disconnected to prevent a USB/battery rail conflict. After switching to battery-only power, the immutable GPIO0 path produced a stable, plausible result across five independent production acquisitions:
-
-| Sample | Raw ADC | Divider mV | Battery mV | Valid |
-|---:|---:|---:|---:|:---:|
-| 1 | 1767 | 1302 | 3906 | yes |
-| 2 | 1768 | 1305 | 3915 | yes |
-| 3 | 1767 | 1304 | 3912 | yes |
-| 4 | 1767 | 1304 | 3912 | yes |
-| 5 | 1760 | 1302 | 3906 | yes |
-
-Configuration readback confirmed nominal calibration factor 1.0, offset 0 mV, low threshold 3500 mV, and critical threshold 3300 mV. No battery health bit was set. The previous hardware-fault hypothesis is withdrawn.
-
-## Commands exercised
-
-```bash
-pio device list
-pio run -e esp32-c3-devkitm-1 --target clean
+~~~bash
+pio test -e native
 pio run -e esp32-c3-devkitm-1
-tools/run-native-tests.sh
-pio run -e hil --target upload --upload-port /dev/ttyACM0
-pio run -e rollback-test
-/home/fadhli/.platformio/penv/bin/python tools/serial_capture.py --port /dev/ttyACM0 --duration 75
-nmcli connection up GATHRA-NODE-GTH-10003BD4BCFC ifname wlp0s20f0u1
-curl --interface wlp0s20f0u1 http://192.168.4.1/api/status
-curl --interface wlp0s20f0u1 -X POST http://192.168.4.1/api/measure
-curl --interface wlp0s20f0u1 -F firmware=@firmware.bin http://192.168.4.1/api/ota
-```
+pio run -e hil
+~~~
 
-The final board image is the production profile, not HIL or rollback-test. Temporary test configuration was restored to the documented defaults.
+Native tests cover exact big-endian v2 golden bytes, malformed versions/lengths/flags, all three packets and required commands, result codes, duplicate command idempotency and persistence order, PCF BCD/date/VL/timer/alarm logic, independent TF/AF clearing, preservation of an AF-only power latch until final release, alarm horizon, boot precedence, config conversion, persistent session/sequence power-loss safety, cold-boot flag-clear reconciliation, filter state, and NVS history wrap/order/corruption/dual metadata recovery.
+
+## USB HIL evidence (2026-08-25)
+
+Board identity was positively mapped as USB MAC 10:00:3B:D4:BC:FC. PCF8563 responded at 0x51 on GPIO8/9 with internal pull-ups; repeated reads were stable, the clock advanced, INVALID_VL was reported until a trusted ACK wrote UTC, and subsequent drift was 0–1 second. A 64 Hz manual latch asserted TF and read back in level mode. A minute/hour/day alarm asserted AF; TF+AF read 0x0F and classified RTC_SCHEDULED_MAINTENANCE.
+
+Sensor acquisition produced 7/7 valid echoes, median 1039 mm, MAD 1 mm, 32.0 C, 72.9 percent humidity, and 4029 mV battery. One NVS history entry and filter baseline survived resets/OTA. Protocol 2 RF was acknowledged on the first attempt. SET_POLL_INTERVAL_MINUTES=5, SCHEDULE_MAINTENANCE_AT, and ENTER_MAINTENANCE_NOW each returned APPLIED and were confirmed by Gateway COMMAND_RESULT.
+
+Node browser OTA streamed 971296 bytes, rebooted with TF retained, classified OTA_REBOOT, booted ota_1 PENDING_VERIFY, and marked it valid after checks. MAINTENANCE_REBOOT classification also passed.
+
+USB keeping the ESP alive after flag clear is explicitly not a hard-power PASS.
+
+## Battery-only HIL procedure
+
+1. flash the production image and ensure Gateway remains connected;
+2. unplug only Node USB;
+3. press and hold the physical Node button;
+4. wait for two short latch-confirmation beeps, then release;
+5. connect Intel AX211—not RTL8188—to the Node AP;
+6. confirm MANUAL_BUTTON, TF latch, persistent state/history and five-minute deadline;
+7. observe the shutdown beep, AP disappearance, and physical power loss;
+8. observe a later RTC_TIMER telemetry packet and a second power loss;
+9. repeat for ENTER_MAINTENANCE_NOW and a minute-aligned scheduled AF wake;
+10. restore poll interval to 10 minutes.
+
+Persisted power-event diagnostics are the evidence source when USB serial is absent.
+
+## Battery-only HIL evidence (2026-08-25)
+
+With Node USB removed, one reset serviced a timer that had become due while USB
+masked the earlier power release. Thereafter the physical rail and LED switched
+off after every poll and the PCF timer restarted the Node without a button.
+Gateway observed sequences 13 through 18 with unchanged session B89AAF6A,
+`RTC_TIMER`, healthy 7/7 measurements, acknowledgements, and approximately
+one-minute cadence.
+
+A physical press-and-hold produced two 100 ms latch beeps; after release the LED
+and AP remained on and the non-blocking three-second indicator continued. The
+dashboard reported `MANUAL_BUTTON`, TF/TIE level latch, the original fixed
+300-second deadline, seven persistent history entries, and preserved filter and
+calibration state. At 299.75 seconds the AP was still present; it disappeared at
+about 300 seconds, the rail switched off, and sequence 18 later arrived as
+`RTC_TIMER`.
+
+RF `ENTER_MAINTENANCE_NOW` command 7 kept TF asserted and exposed the AP with
+source `ACK_COMMAND`. A battery-powered browser OTA retained the latch, rebooted
+as `OTA_REBOOT`, marked the new slot valid, and preserved the original deadline.
+Scheduled target 1787632140 was armed with AIE while ordinary sequences 21 and
+22 continued. At the target, AF+TF was 0x0F and the dashboard reported
+`RTC_SCHEDULED_MAINTENANCE`; after 300 seconds the one-shot completed, AF/AIE
+were released, and sequence 23 reported `scheduleState=COMPLETED`.
+
+The final image was installed by OTA, interval command 10 restored the production
+default of 10 minutes, and a final manual cold boot reconciled the previous
+battery release to `flagClearSucceeded=true`. History count was 12 and the
+session remained B89AAF6A.
+
+## Invariants
+
+- Never clear the power-holding flag until a next wake is programmed and verified.
+- Persist nextSequence before TX; gaps are allowed, reuse is not.
+- Persist command receipt before applying and result before reporting APPLIED.
+- Missing sensor/radio/ACK still schedules the next wake and releases power.
+- If next-wake verification fails, retain the latch and enter bounded recovery.

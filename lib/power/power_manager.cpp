@@ -1,78 +1,182 @@
 #include "power_manager.hpp"
 
+#ifdef ARDUINO
 #include <Arduino.h>
-#include <WiFi.h>
-
-#include "board_pins.hpp"
-#include "esp_sleep.h"
-#include "esp_system.h"
-#include "logger.hpp"
+#endif
 
 namespace gathra {
 
-const char* PowerManager::wakeReasonName() {
-  switch (esp_sleep_get_wakeup_cause()) {
-    case ESP_SLEEP_WAKEUP_UNDEFINED: return "UNDEFINED/COLD_BOOT";
-    case ESP_SLEEP_WAKEUP_ALL: return "ALL";
-    case ESP_SLEEP_WAKEUP_EXT0: return "EXT0";
-    case ESP_SLEEP_WAKEUP_EXT1: return "EXT1";
-    case ESP_SLEEP_WAKEUP_TIMER: return "TIMER";
-    case ESP_SLEEP_WAKEUP_TOUCHPAD: return "TOUCHPAD";
-    case ESP_SLEEP_WAKEUP_ULP: return "ULP";
-    case ESP_SLEEP_WAKEUP_GPIO: return "GPIO_BUTTON";
-    case ESP_SLEEP_WAKEUP_UART: return "UART";
-    case ESP_SLEEP_WAKEUP_WIFI: return "WIFI";
-    case ESP_SLEEP_WAKEUP_COCPU: return "COCPU";
-    case ESP_SLEEP_WAKEUP_COCPU_TRAP_TRIG: return "COCPU_TRAP";
-    case ESP_SLEEP_WAKEUP_BT: return "BT";
+BootClassification PowerManager::classify(
+    const rtc::Status& status, ExpectedRebootMode expectedReboot,
+    rtc::TimeState timeState, uint32_t rtcUnix,
+    protocol::ScheduleState scheduleState, uint32_t scheduledTargetUnix) {
+  BootClassification result{};
+  result.timerFlagAtBoot = status.timerFlag;
+  result.alarmFlagAtBoot = status.alarmFlag;
+  if (expectedReboot == ExpectedRebootMode::kOta) {
+    result.reason = protocol::BootReason::kOtaReboot;
+    result.enterMaintenance = true;
+    return result;
   }
-  return "UNKNOWN";
+  if (expectedReboot == ExpectedRebootMode::kMaintenance) {
+    result.reason = protocol::BootReason::kMaintenanceReboot;
+    result.enterMaintenance = true;
+    return result;
+  }
+  const bool scheduleMatches = status.alarmFlag &&
+      timeState == rtc::TimeState::kValid &&
+      scheduleState == protocol::ScheduleState::kPending &&
+      scheduledTargetUnix != 0U && rtcUnix >= scheduledTargetUnix &&
+      rtcUnix - scheduledTargetUnix <= 300U;
+  if (scheduleMatches) {
+    result.reason = protocol::BootReason::kRtcScheduledMaintenance;
+    result.enterMaintenance = true;
+    return result;
+  }
+  if (status.timerFlag) {
+    result.reason = protocol::BootReason::kRtcTimer;
+    return result;
+  }
+  if (status.communicationOkay && !status.timerFlag && !status.alarmFlag) {
+    result.reason = protocol::BootReason::kManualButton;
+    result.enterMaintenance = true;
+    return result;
+  }
+  result.reason = protocol::BootReason::kUnknown;
+  return result;
 }
 
-const char* PowerManager::resetReasonName() {
-  switch (esp_reset_reason()) {
-    case ESP_RST_UNKNOWN: return "UNKNOWN";
-    case ESP_RST_POWERON: return "POWERON";
-    case ESP_RST_EXT: return "EXTERNAL";
-    case ESP_RST_SW: return "SOFTWARE";
-    case ESP_RST_PANIC: return "PANIC";
-    case ESP_RST_INT_WDT: return "INT_WDT";
-    case ESP_RST_TASK_WDT: return "TASK_WDT";
-    case ESP_RST_WDT: return "WDT";
-    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
-    case ESP_RST_BROWNOUT: return "BROWNOUT";
-    case ESP_RST_SDIO: return "SDIO";
+bool PowerManager::establishManualLatch(uint32_t timeoutMs) {
+  rtc::TimerConfiguration timer{};
+  timer.enabled = true;
+  timer.source = rtc::TimerSource::k64Hz;
+  timer.value = 8U;  // 125 ms, long enough for verified configuration readback.
+  timer.interruptEnabled = true;
+  timer.levelMode = true;
+  if (!rtc_.configureTimer(timer, true, true)) {
+    lastError_ = "64 Hz manual latch timer configuration/readback failed";
+    return false;
   }
-  return "UNKNOWN";
+#ifdef ARDUINO
+  const uint32_t started = millis();
+  while (millis() - started < timeoutMs) {
+    rtc::Status status{};
+    if (rtc_.readStatus(status) && status.timerFlag &&
+        status.timerInterruptEnabled && status.levelMode) {
+      lastError_ = "manual RTC level latch established";
+      return true;
+    }
+    delay(5);
+  }
+#else
+  (void)timeoutMs;
+#endif
+  lastError_ = "manual latch timer did not assert TF before deadline";
+  return false;
 }
 
-bool PowerManager::wokeFromButton() {
-  return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO;
+bool PowerManager::programNextWake(uint8_t pollIntervalMinutes,
+                                   protocol::ScheduleState scheduleState,
+                                   uint32_t scheduledTargetUnix) {
+  if (pollIntervalMinutes == 0U) {
+    lastError_ = "poll interval is zero";
+    return false;
+  }
+  // Rearm the normal wake first, always preserving TF and AF. In particular,
+  // a scheduled-maintenance boot may be powered solely by AF: changing AIE or
+  // clearing AF before this transaction's final write would cut power here.
+  rtc::TimerConfiguration timer{};
+  timer.enabled = true;
+  timer.source = rtc::TimerSource::kOnePerMinute;
+  timer.value = pollIntervalMinutes;
+  timer.interruptEnabled = true;
+  timer.levelMode = true;
+  if (!rtc_.configureTimer(timer, true, true)) {
+    lastError_ = "normal minute timer configuration/readback failed";
+    return false;
+  }
+
+  if (scheduleState == protocol::ScheduleState::kPending) {
+    rtc::DateTime target{};
+    if (scheduledTargetUnix == 0U ||
+        !rtc::Pcf8563::unixToDateTime(scheduledTargetUnix, target) ||
+        !rtc_.configureAlarmForUtc(target, true, true)) {
+      lastError_ = "pending maintenance alarm configuration/readback failed";
+      return false;
+    }
+  } else {
+    rtc::Status status{};
+    if (!rtc_.readStatus(status)) {
+      lastError_ = "alarm latch status read failed";
+      return false;
+    }
+    // If AF is the current power latch, AIE must stay enabled until the final
+    // Control_status_2 release write. Alarm registers are disabled safely on
+    // a later TF-held boot.
+    if (!status.alarmFlag && !rtc_.disableAlarm(true, true)) {
+      lastError_ = "unused maintenance alarm could not be disabled";
+      return false;
+    }
+  }
+  return verifyNextWake(pollIntervalMinutes, scheduleState,
+                        scheduledTargetUnix);
 }
 
-[[noreturn]] void PowerManager::deepSleep(uint32_t seconds) {
-  WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_OFF);
-  GTH_LOGI("POWER", "waiting for active-low button release");
-  pinMode(board::kButton, INPUT_PULLUP);
-  while (digitalRead(board::kButton) == LOW) delay(20);
-  const esp_err_t timerResult =
-      esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000ULL);
-  const esp_err_t gpioResult = esp_deep_sleep_enable_gpio_wakeup(
-      1ULL << board::kButton, ESP_GPIO_WAKEUP_GPIO_LOW);
-  GTH_LOGI("POWER", "deep sleep in 100 ms for %lu s timer=%s gpio=%s",
-           static_cast<unsigned long>(seconds), esp_err_to_name(timerResult),
-           esp_err_to_name(gpioResult));
-  if (timerResult != ESP_OK || gpioResult != ESP_OK) {
-    GTH_LOGE("POWER", "wake-source setup failed; restarting instead of entering unsafe sleep");
-    Serial.flush();
-    delay(100);
-    esp_restart();
+bool PowerManager::verifyNextWake(uint8_t pollIntervalMinutes,
+                                  protocol::ScheduleState scheduleState,
+                                  uint32_t scheduledTargetUnix) {
+  rtc::TimerConfiguration timer{};
+  if (!rtc_.readTimer(timer) || !timer.enabled ||
+      timer.source != rtc::TimerSource::kOnePerMinute ||
+      timer.value == 0U || timer.value > pollIntervalMinutes ||
+      !timer.interruptEnabled || !timer.levelMode) {
+    lastError_ = "normal timer verification failed";
+    return false;
   }
-  Serial.flush();
-  delay(100);
-  esp_deep_sleep_start();
-  __builtin_unreachable();
+  rtc::AlarmConfiguration alarm{};
+  rtc::Status status{};
+  if (!rtc_.readAlarm(alarm) || !rtc_.readStatus(status)) {
+    lastError_ = "alarm verification read failed";
+    return false;
+  }
+  if (scheduleState == protocol::ScheduleState::kPending) {
+    rtc::DateTime target{};
+    if (!rtc::Pcf8563::unixToDateTime(scheduledTargetUnix, target) ||
+        !alarm.minuteEnabled || !alarm.hourEnabled || !alarm.dayEnabled ||
+        alarm.weekdayEnabled || !alarm.interruptEnabled ||
+        alarm.minute != target.minute || alarm.hour != target.hour ||
+        alarm.day != target.day) {
+      lastError_ = "pending alarm readback does not match target";
+      return false;
+    }
+  } else {
+    const bool alarmRegistersDisabled =
+        !alarm.minuteEnabled && !alarm.hourEnabled && !alarm.dayEnabled &&
+        !alarm.weekdayEnabled && !alarm.interruptEnabled;
+    const bool activeAlarmDeferredToFinalRelease =
+        status.alarmFlag && status.alarmInterruptEnabled;
+    if (!alarmRegistersDisabled && !activeAlarmDeferredToFinalRelease) {
+      lastError_ = "unused alarm is neither disabled nor a preserved active latch";
+      return false;
+    }
+  }
+  lastError_ = "next timer/alarm wake sources verified";
+  return true;
+}
+
+bool PowerManager::releaseActiveFlags(bool timerFlag, bool alarmFlag,
+                                      bool disableAlarmInterrupt) {
+  if (!timerFlag && !alarmFlag) {
+    lastError_ = "no active RTC latch flag to release";
+    return false;
+  }
+  if (!rtc_.releaseInterruptFlags(timerFlag, alarmFlag,
+                                  disableAlarmInterrupt)) {
+    lastError_ = "final RTC flag clear/readback failed";
+    return false;
+  }
+  lastError_ = "active RTC latch flag(s) released";
+  return true;
 }
 
 }  // namespace gathra

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded reconnecting serial capture for deep-sleep HIL runs."""
+"""Bounded reconnecting serial capture for reset and power-cycle HIL runs."""
 
 import argparse
 import os

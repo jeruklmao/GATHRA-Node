@@ -1,26 +1,9 @@
-# Installation calibration
+# Calibration
 
-The factory/default configuration has no mounting reference and no installation distance limits. This is deliberate: mounting geometry is site-specific.
+Calibration remains an operator action in the maintenance dashboard. Place the monitored surface at the installation datum, run Measure Now until the accepted value is stable, then capture the current accepted distance or enter referenceDistanceMm explicitly.
 
-Without calibration, the node still reports raw and accepted sensor-to-surface distance, echo duration, MAD, and quality. `CALIBRATION_MISSING` is set and derived water height is null/unavailable.
+Derived water height is referenceDistanceMm minus acceptedDistanceMm. A missing reference produces the documented unavailable height sentinel and health flag; it does not invent a zero height.
 
-## Reference workflow
+Protocol/config v1 migration preserves reference distance, installation range, battery factor/offset/thresholds, sensor filtering, and LoRa/ACK settings when the legacy record is valid. Schema-v2 configuration lives in nvs_v2 and survives complete hard-power cycles and OTA.
 
-1. Put the node in maintenance mode and inspect multiple measurements/history.
-2. Ensure the intended installation datum is actually below the sensor and readings are stable.
-3. Either enter a measured `referenceDistanceMm`, or explicitly press **Capture Current as Reference**.
-4. Confirm the displayed reference and derived result.
-
-Capture is rejected unless a current measurement is `STABLE`, initially `ACCEPTED`, or `CHANGE_CONFIRMED`. A transient, uncertain, invalid, or merely old baseline cannot be captured as if it were the current surface.
-
-The dashboard warning is intentional: only capture when the current target/surface represents the installation datum. Derived signed height is `reference distance - accepted distance`; negative values are preserved rather than silently clamped.
-
-Reference validation accepts zero (unconfigured) or 20–30000 mm. These broad bounds protect representation/driver assumptions; they are not a claim about a particular mounting geometry.
-
-## Installation limits
-
-`installationMinimumDistanceMm` and `installationMaximumDistanceMm` must both be zero (disabled) or a valid ordered pair within 20–30000 mm. When enabled, pings outside the explicit envelope are marked invalid before the burst median. Do not enable limits until the installation has been measured.
-
-## Battery calibration
-
-The divider's nominal ratio is three. `batteryCalibrationFactor` (0.5–1.5) and offset (-1000 to +1000 mV) correct the final battery estimate. Compare the battery terminals with a trusted meter before changing these values. The 3500/3300 mV flags are field-tuning defaults, not charge/discharge control and not a declaration of battery chemistry.
+The seven-ping median/MAD, physical echo validation, DHT-based sound-speed compensation, Hampel history, rise/fall confirmation, and EMA remain the production measurement path. Their temporal baseline is now persisted in NVS, so obstacle filtering does not restart after every RTC-controlled power cycle.

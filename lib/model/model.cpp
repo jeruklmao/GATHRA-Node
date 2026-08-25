@@ -10,7 +10,8 @@ const char* appStateName(AppState state) {
     case AppState::kVerify: return "VERIFY";
     case AppState::kTransmit: return "TRANSMIT";
     case AppState::kMaintenance: return "MAINTENANCE";
-    case AppState::kSleep: return "SLEEP";
+    case AppState::kPowerOff: return "POWER_OFF";
+    case AppState::kFault: return "FAULT";
   }
   return "UNKNOWN";
 }

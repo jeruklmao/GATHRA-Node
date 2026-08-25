@@ -1,58 +1,72 @@
-# Firmware architecture
+# Node architecture
 
-## Orchestrator
+## State flow
 
-`NodeApp` owns the application lifecycle. Arduino `setup()` and `loop()` only delegate to it. Sensor, radio, web, and power modules do not run independent periodic application tasks.
+~~~text
+BOOT
+  classify expected reboot marker, AF, then TF
+  ├─ MANUAL_BUTTON -> establish 64 Hz TF latch -> MAINTENANCE
+  ├─ RTC_SCHEDULED_MAINTENANCE -> keep AF asserted -> MAINTENANCE
+  ├─ RTC_TIMER -> keep TF asserted -> POLL
+  └─ OTA/MAINTENANCE_REBOOT -> keep existing latch -> MAINTENANCE
 
-```text
-                         GPIO/button or OTA one-shot
-                                    │
-                                    ▼
-BOOT ─ timer/cold ─→ ACQUIRE → FILTER ─ plausible ─→ TRANSMIT → SLEEP
-                                  │                       │
-                                  └ suspicious → VERIFY ─┘
-                                    │
-                                    ├ transient: preserve accepted baseline
-                                    ├ confirmed: update post-verification EMA
-                                    └ uncertain: preserve baseline + sooner wake
+POLL
+  acquire -> filter/verify -> persist sequence before TX
+  -> TELEMETRY -> ACK_COMMAND -> UTC/command -> COMMAND_RESULT
+  -> persist history/state -> program and verify next wake
+  -> final flag release -> external power loss
 
-MAINTENANCE: SoftAP + WebServer + diagnostics/config/calibration/OTA
-```
+MAINTENANCE
+  bounded WebServer/OTA/config/history
+  -> fixed deadline (maximum 300 seconds)
+  -> persist -> program and verify next wake
+  -> shutdown beep -> final flag release
+~~~
 
-Blocking is bounded and intentional at peripheral transaction boundaries. The SRF05 uses an any-edge GPIO ISR and FreeRTOS task notification for echo completion. DHT acquisition, echo capture, and LoRa interrupt windows never overlap in the normal sequence. ESP/Arduino networking continues to use its internal tasks.
+Arduino setup and loop delegate to NodeApp. Sensor, filter, protocol, command, RTC, storage, buzzer, OTA, web, radio, and power responsibilities are isolated modules.
 
-## Module responsibilities
+## Boot classification
 
-- `lib/app`: lifecycle, state transitions, health aggregation, telemetry orchestration.
-- `lib/config` and `lib/config_storage`: pure configuration validation and NVS persistence.
-- `lib/dht22`, `lib/srf05`, `lib/battery`, `lib/sensors`: production acquisition drivers and ordered sensor facade.
-- `lib/filtering`: burst median/MAD and temporal candidate verification/EMA.
-- `lib/history`: versioned retained filter state and 64-entry compact ring.
-- `lib/protocol`: explicit binary v1 telemetry and ACK codecs.
-- `lib/radio`: bounded RadioLib TX/RX/ACK retries.
-- `lib/maintenance` and `lib/dashboard`: local WebServer API and compiled vanilla HTML/CSS/JS.
-- `lib/ota`: deferred application validation and official ESP OTA state APIs.
-- `lib/power`: button debounce/long press, wake reason, Wi-Fi shutdown, wake-source setup.
-- `lib/logging`: serial plus bounded 64-line in-RAM circular log.
+PCF status is read before any flag modification. Precedence is:
 
-## Measurement integrity
+1. a valid persisted OTA_REBOOT or MAINTENANCE_REBOOT marker;
+2. AF plus a pending, valid UTC target matching current RTC time (0–300 seconds late);
+3. TF;
+4. successful PCF communication with neither flag means MANUAL_BUTTON;
+5. UNKNOWN.
 
-The burst layer validates idle echo level, rise/fall completion, pulse duration, sample count, and optional explicit installation limits. It calculates the median and MAD across valid pings. DHT compensation uses `c = 331.3 + 0.606T + 0.0124RH`; the fallback uses the conventional SRF05 reference speed (344.8 m/s, equivalent to approximately `/58` in centimetres).
+After this flag classification, an unconsumed persisted maintenanceActive state
+overrides a non-maintenance result as MAINTENANCE_REBOOT recovery. A valid UTC
+deadline resumes only its remaining time; an expired, missing, or untrusted
+deadline receives a zero lifetime and proceeds directly to safe wake
+reprogramming/release rather than starting another five minutes.
 
-Temporal filtering compares a burst with a rolling accepted median/MAD using `max(K × 1.4826 × MAD, absoluteFloor)`, and separately checks sudden change from the last accepted value. `MAD == 0` therefore remains well-defined. Suspicious readings become candidates rather than being discarded or accepted.
+AF+TF therefore selects scheduled maintenance. A mismatched AF never masquerades as scheduled maintenance. Reboot markers are consumed only after classification and successful state initialization.
 
-Verification counts the initial candidate as observation one. Candidate votes must remain within the configured tolerance. A majority return to the accepted baseline is transient-rejected; insufficient evidence in either direction is explicitly uncertain. EMA never sees an unverified candidate. A confirmed persistent regime change atomically reseeds the EMA and rolling Hampel baseline at the verified candidate median, avoiding contamination from the old surface regime.
+## Power invariant
 
-Smaller sensor-to-surface distance is treated as apparent rise and uses the faster policy. Both rise and fall are verified.
+TF or AF is the active, open-drain level latch. Reconfiguration preserves both flag bits through PCF8563 write-AND semantics. The centralized finalPowerOff transaction stops the portal, persists protocol/filter/history/command diagnostics, programs and verifies the next timer and any future alarm, sleeps SX1278, stops Wi-Fi, completes the buzzer, drives GPIO2 LOW, then performs the sole final Control_status_2 release write.
 
-## Retention and identity
+A completed AF-only maintenance wake defers AIE disable until that same final write. If next-wake readback fails, the current flag is not intentionally cleared and the Node enters a bounded recovery fault loop.
 
-`RtcRetainedState` is magic/version/size checked and compile-time limited below 4 KiB. It retains accepted filter history, EMA, candidate diagnostics, boot/session ID, sequence, and 64 compact history entries. A cold/non-deep-sleep reset creates a new random session and resets retained history. Deep-sleep wake retains both session and sequence.
+## Persistence
 
-NVS is reserved for validated operator configuration. It is not used for measurement history or text logs.
+Hard power removal invalidates RTC_DATA_ATTR as application storage, so v2 uses NVS:
 
-GPIO2 is sampled by the debouncer and also has a minimal edge ISR that latches a completed debounced press while a bounded sensor/radio call is active. The orchestrator consumes that request only at a safe transaction boundary. Deep-sleep entry still waits for release before arming active-low wake.
+- gathra-config: schema-v2 operator configuration;
+- gathra-state: checksummed persistent session, next sequence, filter memory, schedule, command, reboot/deadline and power diagnostics;
+- gathra-history: fixed slots h000–h511 and alternating metadata copies.
 
-## Failure behavior
+Sequence allocation commits nextSequence before TX. History writes one 38-byte slot and one small alternating metadata record rather than rewriting a large blob. Corrupt records are skipped. A full ring overwrites the oldest slot.
 
-Recoverable failures never enter a permanent halt. Sonar/DHT/battery/radio errors set health flags and continue to bounded transmit/sleep behavior. Missing gateway ACK completes after at most three attempts. A genuinely unsafe pending OTA boot validation failure invokes official rollback.
+Legacy configuration is read from the original NVS partition only when v2 configuration is absent. normalWakeIntervalSec is converted with ceil(seconds/60) and clamped to 1–255; useful Node, filtering, calibration, battery, LoRa, ACK, and maintenance values are retained.
+
+## Sensors and filtering
+
+The existing bounded architecture remains: physical echo checks, seven-ping burst, median, MAD, environment-compensated sound speed, Hampel-style temporal filtering, rise/fall verification, and EMA. Filter memory is persisted in NVS. A suspicious result completes fast verification while powered; any requested hard-power recheck is honestly rounded to the one-minute PCF minimum.
+
+## Watchdog and recovery
+
+The loop task watchdog remains enabled in polling and maintenance. Sensor/I2C/radio waits are bounded; long LoRa and streamed OTA operations explicitly feed the watchdog while yielding. OTA uses dual partitions and validates a pending image only after RTC, NVS, configuration, sensors, and radio initialize. A persisted maintenance deadline prevents reboot from restarting an unlimited five-minute window.
+
+The irreducible limitation is hardware: a completely non-executing ESP cannot clear an already asserted PCF flag.

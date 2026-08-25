@@ -1,16 +1,12 @@
 #include "ota_manager.hpp"
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <string.h>
 
-#include "build_config.hpp"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
 #include "logger.hpp"
-
-RTC_DATA_ATTR uint32_t gGathraMaintenanceAfterReboot = 0;
 
 // Arduino-ESP32 otherwise marks PENDING_VERIFY valid before setup(). Deferring
 // lets NodeApp perform meaningful configuration/RTC/partition validation first.
@@ -18,9 +14,6 @@ extern "C" bool verifyRollbackLater() { return true; }
 
 namespace gathra {
 namespace {
-
-constexpr char kBootPreferencesNamespace[] = "gathra-boot";
-constexpr char kMaintenanceOnceKey[] = "maint-once";
 
 const char* stateName(esp_ota_img_states_t state) {
   switch (state) {
@@ -99,32 +92,6 @@ bool OtaManager::completeBootValidation(bool applicationStateSane) {
   lastStatus_ = "failed to mark pending image valid";
   GTH_LOGE("OTA", "%s error=%s", lastStatus_, esp_err_to_name(result));
   return false;
-}
-
-void OtaManager::requestMaintenanceAfterReboot() {
-  gGathraMaintenanceAfterReboot = build::kMaintenanceMarker;
-  Preferences preferences;
-  if (!preferences.begin(kBootPreferencesNamespace, false)) {
-    GTH_LOGW("OTA", "could not persist post-reboot maintenance marker; RTC fallback active");
-    return;
-  }
-  const bool saved = preferences.putBool(kMaintenanceOnceKey, true) == sizeof(uint8_t);
-  preferences.end();
-  if (!saved) {
-    GTH_LOGW("OTA", "post-reboot maintenance marker NVS write failed; RTC fallback active");
-  }
-}
-
-bool OtaManager::takeMaintenanceAfterRebootRequest() {
-  bool requested = gGathraMaintenanceAfterReboot == build::kMaintenanceMarker;
-  gGathraMaintenanceAfterReboot = 0;
-  Preferences preferences;
-  if (preferences.begin(kBootPreferencesNamespace, false)) {
-    requested = preferences.getBool(kMaintenanceOnceKey, false) || requested;
-    if (requested) (void)preferences.remove(kMaintenanceOnceKey);
-    preferences.end();
-  }
-  return requested;
 }
 
 }  // namespace gathra

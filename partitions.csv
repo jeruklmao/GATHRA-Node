@@ -1,6 +1,9 @@
 # Name,    Type, SubType, Offset,   Size,     Flags
+# The original NVS stays in place solely so v1 operator configuration can be
+# migrated. All v2 writes use the large nvs_v2 partition at the end of flash.
 nvs,       data, nvs,     0x9000,   0x5000,
 otadata,   data, ota,     0xE000,   0x2000,
-ota_0,     app,  ota_0,   0x10000,  0x1D0000,
-ota_1,     app,  ota_1,   0x1E0000, 0x1D0000,
-coredump,  data, coredump,0x3B0000, 0x10000,
+ota_0,     app,  ota_0,   0x10000,  0x180000,
+ota_1,     app,  ota_1,   0x190000, 0x180000,
+coredump,  data, coredump,0x310000, 0x10000,
+nvs_v2,    data, nvs,     0x320000, 0xE0000,
