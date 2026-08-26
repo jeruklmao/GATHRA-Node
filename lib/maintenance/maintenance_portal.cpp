@@ -165,7 +165,7 @@ void MaintenancePortal::registerRoutes() {
     const TxReport report = actions_->sendRadioTest();
     JsonDocument doc;
     doc["ok"] = report.transmitted;
-    doc["message"] = report.acknowledged ? "matching Protocol v2 ACK received"
+    doc["message"] = report.acknowledged ? "matching Protocol v3 ACK received"
                                           : "bounded radio test completed without ACK";
     doc["radioReady"] = report.radioReady;
     doc["transmitted"] = report.transmitted;

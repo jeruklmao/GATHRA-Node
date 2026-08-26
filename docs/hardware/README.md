@@ -1,6 +1,6 @@
 # Node hardware documentation
 
-GATHRA_netlist.xml in this directory is an exact archive of the workspace source latest_GATHRA_netlist.xml (SHA-256 25bbca8e105a63c05b4061083f1254afba08fd3ef61e2efd782a28190a6633e8) and is authoritative for the 2.0.0 board.
+GATHRA_netlist.xml in this directory is an exact archive of the workspace source latest_GATHRA_netlist.xml (SHA-256 25bbca8e105a63c05b4061083f1254afba08fd3ef61e2efd782a28190a6633e8) and is authoritative for the current PCF8563/AO3401A board.
 
 GATHRA.fzz, GATHRA_bb.png, and GATHRA_schem.png predate the PCF8563/AO3401A redesign and are retained only as stale historical artifacts. They must not be used to wire or review the current board.
 

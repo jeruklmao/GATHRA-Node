@@ -1,6 +1,6 @@
-# GATHRA LoRa Protocol v2
+# GATHRA LoRa Protocol v3
 
-Firmware 2.0.0 uses Protocol 2 exclusively. There is no Protocol v1 parser or fallback. All multi-byte integers are unsigned big-endian unless marked signed; firmware encodes fields individually and never transmits a C++ struct. SX1278 CRC is enabled, but Protocol 2 does not provide HMAC, encryption, or node authentication.
+Firmware 2.1.0 uses Protocol 3 exclusively. Protocol 3 is not backward compatible with Protocol 1 or 2, and there is no legacy parser or fallback. All multi-byte integers are unsigned big-endian unless marked signed; firmware encodes fields individually and never transmits a C++ struct. SX1278 CRC is enabled, but Protocol 3 does not provide HMAC, encryption, or node authentication.
 
 ## Common header
 
@@ -9,7 +9,7 @@ Let N be nodeIdLength and P = 5 + N.
 | Offset | Size | Field | Value |
 | ---: | ---: | --- | --- |
 | 0 | 2 | magic | ASCII GT (47 54) |
-| 2 | 1 | protocolVersion | 02 |
+| 2 | 1 | protocolVersion | 03 |
 | 3 | 1 | messageType | 01 telemetry, 02 ACK_COMMAND, 03 COMMAND_RESULT |
 | 4 | 1 | nodeIdLength | 1–24 |
 | 5 | N | nodeId | ASCII A–Z, a–z, 0–9, hyphen, underscore |
@@ -18,7 +18,7 @@ Packets with a wrong version, malformed ID, unexpected length, invalid enum, res
 
 ## TELEMETRY (01)
 
-The payload is 53 bytes, so total length is 58 + N.
+The payload is 57 bytes, so total length is 62 + N. The maximum packet is 86 bytes for a 24-byte Node ID and fits the 96-byte radio buffer.
 
 | Relative to P | Size | Field | Encoding |
 | ---: | ---: | --- | --- |
@@ -45,8 +45,9 @@ The payload is 53 bytes, so total length is 58 + N.
 | 47 | 4 | lastCommandId | 0 when command type is NONE |
 | 51 | 1 | lastCommandType | command enum |
 | 52 | 1 | lastCommandResult | result enum, FF for NONE |
+| 53 | 4 | referenceDistanceMm | uint32 calibration reference; absolute offset 58 + N |
 
-Sentinels: distance = FFFFFFFF, temperature = 8000, humidity = FFFF. Invalid RTC states require rtcUnixTime=0. Schedule state NONE requires scheduledMaintenanceUnix=0.
+Sentinels: distance = FFFFFFFF, temperature = 8000, humidity = FFFF. `referenceDistanceMm=0` means calibration is not configured; every non-zero uint32 value is preserved exactly. Invalid RTC states require rtcUnixTime=0. Schedule state NONE requires scheduledMaintenanceUnix=0.
 
 Filter states: 0 STABLE, 1 ACCEPTED, 2 VERIFY_RISE, 3 VERIFY_FALL, 4 TRANSIENT_REJECTED, 5 CHANGE_CONFIRMED, 6 UNCERTAIN, 7 INVALID.
 

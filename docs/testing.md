@@ -10,7 +10,9 @@ pio run -e esp32-c3-devkitm-1
 pio run -e hil
 ~~~
 
-Native tests cover exact big-endian v2 golden bytes, malformed versions/lengths/flags, all three packets and required commands, result codes, duplicate command idempotency and persistence order, PCF BCD/date/VL/timer/alarm logic, independent TF/AF clearing, preservation of an AF-only power latch until final release, alarm horizon, boot precedence, config conversion, persistent session/sequence power-loss safety, cold-boot flag-clear reconciliation, filter state, and NVS history wrap/order/corruption/dual metadata recovery.
+Native tests cover exact big-endian v3 golden bytes, the appended `referenceDistanceMm` field including zero and uint32 limits, Protocol 1/2 rejection, malformed lengths/flags, all three packets and required commands, result codes, duplicate command idempotency and persistence order, PCF BCD/date/VL/timer/alarm logic, independent TF/AF clearing, preservation of an AF-only power latch until final release, alarm horizon, boot precedence, config conversion, persistent session/sequence power-loss safety, cold-boot flag-clear reconciliation, filter state, and NVS history wrap/order/corruption/dual metadata recovery.
+
+The physical evidence below is the Firmware 2.0.0 / Protocol 2 regression baseline. Firmware 2.1.0 / Protocol 3 must complete its own RF HIL before release; automated builds alone are not recorded as hardware evidence.
 
 ## USB HIL evidence (2026-08-25)
 

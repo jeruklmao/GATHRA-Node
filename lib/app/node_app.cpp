@@ -437,6 +437,7 @@ protocol::TelemetryPacket NodeApp::makeTelemetry() {
   packet.lastCommandId = persistent_.state().command.commandId;
   packet.lastCommandType = persistent_.state().command.commandType;
   packet.lastCommandResult = persistent_.state().command.result;
+  packet.referenceDistanceMm = config_.referenceDistanceMm;
   return packet;
 }
 
@@ -865,7 +866,7 @@ TxReport NodeApp::sendRadioTest() {
   lastTx_ = radio_.sendTelemetry(makeTelemetry(), config_, &ack);
   if (lastTx_.acknowledged) {
     synchronizeRtc(ack);
-    // A maintenance-initiated telemetry packet is still a real Protocol v2
+    // A maintenance-initiated telemetry packet is still a real Protocol v3
     // exchange.  Commands in its ACK must have exactly the same durable,
     // idempotent semantics as commands received during the normal poll path.
     const CommandApplyResult command = commands_.handle(

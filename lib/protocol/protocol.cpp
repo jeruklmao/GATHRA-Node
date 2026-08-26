@@ -183,7 +183,8 @@ bool encodeTelemetry(const TelemetryPacket& p, uint8_t* output, size_t capacity,
       !writer.u8(static_cast<uint8_t>(p.scheduleState)) ||
       !writer.u32(p.scheduledMaintenanceUnix) || !writer.u32(p.lastCommandId) ||
       !writer.u8(static_cast<uint8_t>(p.lastCommandType)) ||
-      !writer.u8(static_cast<uint8_t>(p.lastCommandResult))) {
+      !writer.u8(static_cast<uint8_t>(p.lastCommandResult)) ||
+      !writer.u32(p.referenceDistanceMm)) {
     return false;
   }
   written = writer.size();
@@ -208,7 +209,8 @@ DecodeStatus decodeTelemetry(const uint8_t* input, size_t length, TelemetryPacke
       !reader.u8(boot) || !reader.u8(rtc) || !reader.u32(p.rtcUnixTime) ||
       !reader.u8(p.pollIntervalMinutes) || !reader.u8(schedule) ||
       !reader.u32(p.scheduledMaintenanceUnix) || !reader.u32(p.lastCommandId) ||
-      !reader.u8(command) || !reader.u8(result)) {
+      !reader.u8(command) || !reader.u8(result) ||
+      !reader.u32(p.referenceDistanceMm)) {
     return DecodeStatus::kBufferTooSmall;
   }
   if (filter > static_cast<uint8_t>(FilterState::kInvalid) || !validBoot(boot) ||

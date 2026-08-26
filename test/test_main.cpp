@@ -180,25 +180,34 @@ protocol::TelemetryPacket canonicalTelemetry() {
   p.lastCommandId = 0x01020305U;
   p.lastCommandType = protocol::CommandType::kSetPollIntervalMinutes;
   p.lastCommandResult = protocol::CommandResultCode::kApplied;
+  p.referenceDistanceMm = 1500U;
   return p;
 }
 
-void test_protocol_v2_telemetry_golden_big_endian() {
+void test_protocol_v3_telemetry_golden_big_endian() {
   const protocol::TelemetryPacket source = canonicalTelemetry();
   const uint8_t golden[] = {
-      0x47,0x54,0x02,0x01,0x02,0x4E,0x31,
+      0x47,0x54,0x03,0x01,0x02,0x4E,0x31,
       0x01,0x02,0x03,0x04,0xA0,0xB0,0xC0,0xD0,
       0x00,0x00,0x12,0x34,0x00,0x00,0x02,0xE4,
       0x00,0x00,0x02,0xE3,0x00,0x03,0xFB,0x2E,
       0x11,0xD7,0x0E,0x74,0x07,0x07,0x00,0x00,
       0x03,0x02,0x02,0x00,0x00,0x69,0xAB,0xCD,
       0xEF,0x0A,0x01,0x69,0xAB,0xF0,0x00,0x01,
-      0x02,0x03,0x05,0x03,0x00};
+      0x02,0x03,0x05,0x03,0x00,0x00,0x00,0x05,
+      0xDC};
   uint8_t bytes[96]{};
   size_t written = 0;
   TEST_ASSERT_TRUE(protocol::encodeTelemetry(source, bytes, sizeof(bytes), written));
+  TEST_ASSERT_EQUAL_UINT(53U, protocol::kReferenceDistancePayloadOffset);
+  TEST_ASSERT_EQUAL_UINT(57U, protocol::kTelemetryPayloadBytes);
+  TEST_ASSERT_EQUAL_UINT(62U + std::strlen(source.nodeId), written);
   TEST_ASSERT_EQUAL_UINT(sizeof(golden), written);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(golden, bytes, sizeof(golden));
+  TEST_ASSERT_EQUAL_HEX8(0x00U, bytes[written - 4U]);
+  TEST_ASSERT_EQUAL_HEX8(0x00U, bytes[written - 3U]);
+  TEST_ASSERT_EQUAL_HEX8(0x05U, bytes[written - 2U]);
+  TEST_ASSERT_EQUAL_HEX8(0xDCU, bytes[written - 1U]);
   protocol::TelemetryPacket decoded{};
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kOk),
       static_cast<uint8_t>(protocol::decodeTelemetry(bytes, written, decoded)));
@@ -206,9 +215,10 @@ void test_protocol_v2_telemetry_golden_big_endian() {
   TEST_ASSERT_EQUAL_HEX32(source.rtcUnixTime, decoded.rtcUnixTime);
   TEST_ASSERT_EQUAL_UINT8(10U, decoded.pollIntervalMinutes);
   TEST_ASSERT_EQUAL_HEX32(source.lastCommandId, decoded.lastCommandId);
+  TEST_ASSERT_EQUAL_UINT32(1500U, decoded.referenceDistanceMm);
 }
 
-void test_protocol_v2_sentinels_and_malformed_packets() {
+void test_protocol_v3_reference_sentinels_and_malformed_packets() {
   auto p = canonicalTelemetry();
   p.rawDistanceMm = kDistanceUnavailable;
   p.acceptedDistanceMm = kDistanceUnavailable;
@@ -216,16 +226,30 @@ void test_protocol_v2_sentinels_and_malformed_packets() {
   p.humidityCentiPercent = kHumidityUnavailable;
   p.rtcState = protocol::RtcState::kInvalidVl;
   p.rtcUnixTime = 0U;
+  p.referenceDistanceMm = 0U;
   uint8_t bytes[96]{};
   size_t written = 0;
   TEST_ASSERT_TRUE(protocol::encodeTelemetry(p, bytes, sizeof(bytes), written));
   protocol::TelemetryPacket decoded{};
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kOk),
+      static_cast<uint8_t>(protocol::decodeTelemetry(bytes, written, decoded)));
+  TEST_ASSERT_EQUAL_UINT32(0U, decoded.referenceDistanceMm);
+
+  p.referenceDistanceMm = UINT32_MAX;
+  TEST_ASSERT_TRUE(protocol::encodeTelemetry(p, bytes, sizeof(bytes), written));
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kOk),
+      static_cast<uint8_t>(protocol::decodeTelemetry(bytes, written, decoded)));
+  TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, decoded.referenceDistanceMm);
+
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kBufferTooSmall),
       static_cast<uint8_t>(protocol::decodeTelemetry(bytes, written - 1U, decoded)));
   bytes[2] = 1U;
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kUnsupportedVersion),
       static_cast<uint8_t>(protocol::decodeTelemetry(bytes, written, decoded)));
   bytes[2] = 2U;
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kUnsupportedVersion),
+      static_cast<uint8_t>(protocol::decodeTelemetry(bytes, written - 4U, decoded)));
+  bytes[2] = 3U;
   bytes[written] = 0U;
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kTrailingData),
       static_cast<uint8_t>(protocol::decodeTelemetry(bytes, written + 1U, decoded)));
@@ -240,11 +264,20 @@ void test_ack_command_none_time_flags_and_all_commands() {
   uint8_t bytes[64]{};
   size_t written = 0;
   TEST_ASSERT_TRUE(protocol::encodeAckCommand(ack, bytes, sizeof(bytes), written));
+  TEST_ASSERT_EQUAL_UINT(protocol::kCommonHeaderFixedBytes +
+                             std::strlen(ack.nodeId) +
+                             protocol::kAckCommandFixedPayloadBytes,
+                         written);
+  TEST_ASSERT_EQUAL_UINT8(protocol::kVersion, bytes[2]);
   protocol::AckCommandPacket decoded{};
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kOk),
       static_cast<uint8_t>(protocol::decodeAckCommand(bytes, written, decoded)));
   TEST_ASSERT_FALSE(decoded.timeValid);
   TEST_ASSERT_TRUE(protocol::ackMatches(decoded, telemetry));
+  bytes[2] = 2U;
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kUnsupportedVersion),
+      static_cast<uint8_t>(protocol::decodeAckCommand(bytes, written, decoded)));
+  bytes[2] = protocol::kVersion;
 
   ack.timeValid = true;
   ack.gatewayUnixTime = 1787600000U;
@@ -287,6 +320,11 @@ void test_command_result_codec_all_result_codes() {
     uint8_t bytes[64]{};
     size_t written = 0;
     TEST_ASSERT_TRUE(protocol::encodeCommandResult(source, bytes, sizeof(bytes), written));
+    TEST_ASSERT_EQUAL_UINT(protocol::kCommonHeaderFixedBytes +
+                               std::strlen(source.nodeId) +
+                               protocol::kCommandResultPayloadBytes,
+                           written);
+    TEST_ASSERT_EQUAL_UINT8(protocol::kVersion, bytes[2]);
     protocol::CommandResultPacket decoded{};
     TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(protocol::DecodeStatus::kOk),
         static_cast<uint8_t>(protocol::decodeCommandResult(bytes, written, decoded)));
@@ -657,8 +695,8 @@ void test_filtering_and_config_migration_policy() {
 
 int main(int, char**) {
   UNITY_BEGIN();
-  RUN_TEST(test_protocol_v2_telemetry_golden_big_endian);
-  RUN_TEST(test_protocol_v2_sentinels_and_malformed_packets);
+  RUN_TEST(test_protocol_v3_telemetry_golden_big_endian);
+  RUN_TEST(test_protocol_v3_reference_sentinels_and_malformed_packets);
   RUN_TEST(test_ack_command_none_time_flags_and_all_commands);
   RUN_TEST(test_command_result_codec_all_result_codes);
   RUN_TEST(test_pcf_bcd_time_vl_and_boundaries);
