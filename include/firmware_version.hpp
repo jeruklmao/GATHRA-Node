@@ -1,6 +1,6 @@
 #pragma once
 
-#define GATHRA_FIRMWARE_VERSION "2.1.0"
+#define GATHRA_FIRMWARE_VERSION "2.1.1"
 #define GATHRA_PROTOCOL_VERSION 3
 
 #ifndef GATHRA_BUILD_ID

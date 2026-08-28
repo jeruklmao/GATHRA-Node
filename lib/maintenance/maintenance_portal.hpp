@@ -57,12 +57,19 @@ class MaintenancePortal {
   void registerRoutes();
   void noteActivity();
   void sendError(int status, const char* message);
+  void sendDashboard();
   void sendStatus();
   void sendHistory();
+  void sendHistoryChart();
   void sendConfig();
   void handleConfigUpdate();
   void sendMeasurementResult(const char* message);
   bool parseConfig(NodeConfig& candidate, String& error);
+  bool sendBoundedJson(const String& output, uint32_t startedAtMs,
+                       const char* endpoint);
+  bool sendBoundedContent(const char* content, size_t length,
+                          const char* contentType, uint32_t startedAtMs,
+                          const char* endpoint);
 
   WebServer server_{80};
   MaintenanceActions* actions_ = nullptr;

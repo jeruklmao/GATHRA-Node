@@ -3,6 +3,8 @@
 #include <ArduinoJson.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <errno.h>
+#include <lwip/sockets.h>
 #include <math.h>
 #include <string.h>
 
@@ -10,10 +12,32 @@
 #include "dashboard_html.hpp"
 #include "esp32-hal.h"
 #include "firmware_version.hpp"
+#include "history_query.hpp"
 #include "logger.hpp"
 
 namespace gathra {
 namespace {
+
+constexpr uint32_t kHistoryRequestDeadlineMs = 2500U;
+constexpr size_t kHistoryWriteChunkBytes = 512U;
+
+bool parseUint16Argument(WebServer& server, const char* name,
+                         uint16_t defaultValue, uint16_t& output) {
+  if (!server.hasArg(name)) {
+    output = defaultValue;
+    return true;
+  }
+  const String text = server.arg(name);
+  if (text.isEmpty()) return false;
+  char* end = nullptr;
+  errno = 0;
+  const unsigned long value = strtoul(text.c_str(), &end, 10);
+  if (errno != 0 || end == text.c_str() || *end != '\0' || value > UINT16_MAX) {
+    return false;
+  }
+  output = static_cast<uint16_t>(value);
+  return true;
+}
 
 void addNullable(JsonObject object, const char* key, uint32_t value) {
   if (value == kDistanceUnavailable) object[key] = nullptr;
@@ -137,10 +161,11 @@ void MaintenancePortal::sendError(int status, const char* message) {
 void MaintenancePortal::registerRoutes() {
   server_.on("/", HTTP_GET, [this]() {
     noteActivity();
-    server_.send_P(200, "text/html; charset=utf-8", dashboard::kHtml);
+    sendDashboard();
   });
   server_.on("/api/status", HTTP_GET, [this]() { sendStatus(); });
   server_.on("/api/history", HTTP_GET, [this]() { sendHistory(); });
+  server_.on("/api/history/chart", HTTP_GET, [this]() { sendHistoryChart(); });
   server_.on("/api/config", HTTP_GET, [this]() { sendConfig(); });
   server_.on("/api/config", HTTP_PUT, [this]() { handleConfigUpdate(); });
   server_.on("/api/measure", HTTP_POST, [this]() {
@@ -372,15 +397,32 @@ void MaintenancePortal::sendStatus() {
 }
 
 void MaintenancePortal::sendHistory() {
+  const uint32_t startedAtMs = millis();
+  const uint32_t heapBefore = ESP.getFreeHeap();
+  uint16_t offset = 0U;
+  uint16_t limit = history_query::kDefaultPageSize;
+  if (!parseUint16Argument(server_, "offset", 0U, offset) ||
+      !parseUint16Argument(server_, "limit", history_query::kDefaultPageSize,
+                           limit)) {
+    return sendError(400, "offset and limit must be unsigned 16-bit integers");
+  }
+  const history_query::Page page =
+      history_query::page(actions_->historyCount(), offset, limit);
   const uint32_t reference = actions_->currentConfig().referenceDistanceMm;
   JsonDocument doc;
-  doc["count"] = actions_->historyCount();
+  doc["count"] = page.total;
   doc["capacity"] = actions_->historyCapacity();
+  doc["offset"] = page.offset;
+  doc["limit"] = page.limit;
+  doc["returned"] = page.returned;
+  doc["hasPrevious"] = page.hasPrevious;
+  doc["hasNext"] = page.hasNext;
+  if (page.hasNext) doc["nextOffset"] = page.nextOffset;
+  else doc["nextOffset"] = nullptr;
   doc["timeBasis"] = "PCF8563 UTC when trusted; null means unavailable";
   JsonArray entries = doc["entries"].to<JsonArray>();
   HistoryEntry entry{};
-  for (uint16_t i = 0; i < actions_->historyCount(); ++i) {
-    if ((i & 0x0FU) == 0U) feedLoopWDT();
+  for (uint16_t i = page.offset; i < page.nextOffset; ++i) {
     if (!actions_->historyAt(i, entry)) continue;
     JsonObject value = entries.add<JsonObject>();
     value["sequence"] = entry.sequence;
@@ -411,7 +453,156 @@ void MaintenancePortal::sendHistory() {
   }
   String output;
   serializeJson(doc, output);
-  server_.send(200, "application/json", output);
+  GTH_LOGI("WEB", "history page offset=%u returned=%u/%u bytes=%u buildMs=%lu heap=%lu->%lu min=%lu",
+           page.offset, page.returned, page.total, output.length(),
+           static_cast<unsigned long>(millis() - startedAtMs),
+           static_cast<unsigned long>(heapBefore),
+           static_cast<unsigned long>(ESP.getFreeHeap()),
+           static_cast<unsigned long>(ESP.getMinFreeHeap()));
+  (void)sendBoundedJson(output, startedAtMs, "/api/history");
+}
+
+void MaintenancePortal::sendDashboard() {
+  const uint32_t startedAtMs = millis();
+  (void)sendBoundedContent(dashboard::kHtml, sizeof(dashboard::kHtml) - 1U,
+                           "text/html; charset=utf-8", startedAtMs, "/");
+}
+
+void MaintenancePortal::sendHistoryChart() {
+  const uint32_t startedAtMs = millis();
+  const uint32_t heapBefore = ESP.getFreeHeap();
+  uint16_t requestedPoints = history_query::kDefaultChartPoints;
+  if (!parseUint16Argument(server_, "maxPoints", history_query::kDefaultChartPoints,
+                           requestedPoints)) {
+    return sendError(400, "maxPoints must be an unsigned 16-bit integer");
+  }
+  const String series = server_.hasArg("series")
+      ? server_.arg("series") : String("rawDistanceMm");
+  const bool validSeries = series == "rawDistanceMm" ||
+      series == "acceptedDistanceMm" || series == "waterHeightMm" ||
+      series == "temperatureC" || series == "humidityPercent" ||
+      series == "batteryMv";
+  if (!validSeries) return sendError(400, "unsupported chart series");
+
+  const uint16_t total = actions_->historyCount();
+  const uint16_t points = history_query::chartPointCount(total, requestedPoints);
+  const uint32_t reference = actions_->currentConfig().referenceDistanceMm;
+  JsonDocument doc;
+  doc["count"] = total;
+  doc["maxPoints"] = points;
+  doc["series"] = series;
+  JsonArray entries = doc["entries"].to<JsonArray>();
+  HistoryEntry entry{};
+  for (uint16_t point = 0U; point < points; ++point) {
+    const uint16_t index = history_query::chartIndex(total, points, point);
+    if (!actions_->historyAt(index, entry)) continue;
+    JsonObject value = entries.add<JsonObject>();
+    // Compact chart keys keep a 100-point response comfortably below the
+    // ESP32-C3 socket-pressure threshold observed with the legacy endpoint.
+    value["s"] = entry.sequence;
+    value["f"] = entry.filterState;
+    if (series == "rawDistanceMm") {
+      if (entry.rawDistanceMm == kDistanceUnavailable) value["v"] = nullptr;
+      else value["v"] = entry.rawDistanceMm;
+    } else if (series == "acceptedDistanceMm") {
+      if (entry.acceptedDistanceMm == kDistanceUnavailable) value["v"] = nullptr;
+      else value["v"] = entry.acceptedDistanceMm;
+    } else if (series == "waterHeightMm") {
+      if (reference == 0U || entry.acceptedDistanceMm == kDistanceUnavailable) {
+        value["v"] = nullptr;
+      } else {
+        value["v"] = static_cast<int32_t>(reference) -
+                      static_cast<int32_t>(entry.acceptedDistanceMm);
+      }
+    } else if (series == "temperatureC") {
+      if (entry.temperatureCentiC == kTemperatureUnavailable) value["v"] = nullptr;
+      else value["v"] = static_cast<float>(entry.temperatureCentiC) / 100.0F;
+    } else if (series == "humidityPercent") {
+      if (entry.humidityCentiPercent == kHumidityUnavailable) value["v"] = nullptr;
+      else value["v"] = static_cast<float>(entry.humidityCentiPercent) / 100.0F;
+    } else {
+      value["v"] = entry.batteryMv;
+    }
+  }
+  String output;
+  serializeJson(doc, output);
+  GTH_LOGI("WEB", "history chart series=%s points=%u/%u bytes=%u buildMs=%lu heap=%lu->%lu min=%lu",
+           series.c_str(), points, total, output.length(),
+           static_cast<unsigned long>(millis() - startedAtMs),
+           static_cast<unsigned long>(heapBefore),
+           static_cast<unsigned long>(ESP.getFreeHeap()),
+           static_cast<unsigned long>(ESP.getMinFreeHeap()));
+  (void)sendBoundedJson(output, startedAtMs, "/api/history/chart");
+}
+
+bool MaintenancePortal::sendBoundedJson(const String& output,
+                                        uint32_t startedAtMs,
+                                        const char* endpoint) {
+  return sendBoundedContent(output.c_str(), output.length(),
+                            "application/json", startedAtMs, endpoint);
+}
+
+bool MaintenancePortal::sendBoundedContent(const char* content, size_t length,
+                                           const char* contentType,
+                                           uint32_t startedAtMs,
+                                           const char* endpoint) {
+  WiFiClient client = server_.client();
+  const int socket = client.fd();
+  if (socket < 0 || !client.connected()) return false;
+
+  server_.setContentLength(length);
+  // Let WebServer produce its normal headers, but give it only one safe body
+  // byte. The remaining content uses the bounded nonblocking path below.
+  const String firstByte = length == 0U ? String() : String(content[0]);
+  server_.send(200, contentType, firstByte);
+  size_t sentTotal = length == 0U ? 0U : 1U;
+  while (sentTotal < length) {
+    if (!client.connected() ||
+        millis() - startedAtMs >= kHistoryRequestDeadlineMs) {
+      GTH_LOGW("WEB", "%s aborted bytes=%u/%u elapsedMs=%lu reason=%s",
+               endpoint, sentTotal, length,
+               static_cast<unsigned long>(millis() - startedAtMs),
+               client.connected() ? "deadline" : "disconnect");
+      client.stop();
+      return false;
+    }
+
+    fd_set writable;
+    FD_ZERO(&writable);
+    FD_SET(socket, &writable);
+    timeval wait{0, 20000};
+    const int ready = select(socket + 1, nullptr, &writable, nullptr, &wait);
+    if (ready < 0) {
+      GTH_LOGW("WEB", "%s select failed errno=%d", endpoint, errno);
+      client.stop();
+      return false;
+    }
+    if (ready == 0 || !FD_ISSET(socket, &writable)) {
+      delay(1);
+      continue;
+    }
+
+    const size_t remaining = length - sentTotal;
+    const size_t chunk = remaining < kHistoryWriteChunkBytes
+        ? remaining : kHistoryWriteChunkBytes;
+    const int written = ::send(socket, content + sentTotal, chunk, MSG_DONTWAIT);
+    if (written > 0) {
+      sentTotal += static_cast<size_t>(written);
+      delay(0);
+      continue;
+    }
+    if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      delay(1);
+      continue;
+    }
+    GTH_LOGW("WEB", "%s write failed bytes=%u/%u errno=%d",
+             endpoint, sentTotal, length, errno);
+    client.stop();
+    return false;
+  }
+  GTH_LOGI("WEB", "%s sent bytes=%u elapsedMs=%lu", endpoint, sentTotal,
+           static_cast<unsigned long>(millis() - startedAtMs));
+  return true;
 }
 
 void MaintenancePortal::sendConfig() {

@@ -1,6 +1,6 @@
 # GATHRA Node
 
-GATHRA Node firmware 2.1.0 implements LoRa Protocol 3 and true PCF8563-controlled hard-power cycling on an ESP32-C3 Super Mini. The ESP32 does not deep-sleep during normal production operation: it verifies the next RTC wake, clears the current level interrupt only at the final shutdown step, and the AO3401A removes power from the switched electronics.
+GATHRA Node firmware 2.1.1 implements LoRa Protocol 3 and true PCF8563-controlled hard-power cycling on an ESP32-C3 Super Mini. The ESP32 does not deep-sleep during normal production operation: it verifies the next RTC wake, clears the current level interrupt only at the final shutdown step, and the AO3401A removes power from the switched electronics.
 
 The authoritative wiring is docs/hardware/GATHRA_netlist.xml. Current GPIO assignments are centralized in include/board_pins.hpp:
 
@@ -37,6 +37,8 @@ Use the exact USB serial by-id path after positively mapping the board; never as
 ## Persistent storage
 
 Flash is 4 MiB with two 1.5 MiB OTA slots. A legacy 20 KiB NVS partition is retained read-only as a Protocol/config v1 migration source; all current configuration/state/history uses the 896 KiB `nvs_v2` partition. History uses 512 fixed 38-byte circular slots plus dual generation metadata: 8 h 32 min at one-minute polling or 3 d 13 h 20 min at the ten-minute default.
+
+The maintenance dashboard never materializes or transmits the whole history ring. Full records use a 12-entry paginated API, charts use at most 100 uniformly downsampled points, and history is loaded only on entry or explicit refresh. Dashboard writes are divided into bounded socket chunks with a 2.5-second request deadline so a slow or disconnected client cannot starve `loopTask`.
 
 The following survive complete power removal: Node ID/configuration and calibration, persistent session and next sequence, filter/EMA/candidate state, history, poll interval, one-shot maintenance target, RTC sync metadata, command receipt/result, reboot marker, maintenance deadline, and eight bounded power diagnostics.
 

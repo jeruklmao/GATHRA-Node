@@ -10,7 +10,26 @@ pio run -e esp32-c3-devkitm-1
 pio run -e hil
 ~~~
 
-Native tests cover exact big-endian v3 golden bytes, the appended `referenceDistanceMm` field including zero and uint32 limits, Protocol 1/2 rejection, malformed lengths/flags, all three packets and required commands, result codes, duplicate command idempotency and persistence order, PCF BCD/date/VL/timer/alarm logic, independent TF/AF clearing, preservation of an AF-only power latch until final release, alarm horizon, boot precedence, config conversion, persistent session/sequence power-loss safety, cold-boot flag-clear reconciliation, filter state, and NVS history wrap/order/corruption/dual metadata recovery.
+Native tests cover exact big-endian v3 golden bytes, the appended `referenceDistanceMm` field including zero and uint32 limits, Protocol 1/2 rejection, malformed lengths/flags, all three packets and required commands, result codes, duplicate command idempotency and persistence order, PCF BCD/date/VL/timer/alarm logic, independent TF/AF clearing, preservation of an AF-only power latch until final release, alarm horizon, boot precedence, config conversion, persistent session/sequence power-loss safety, cold-boot flag-clear reconciliation, filter state, NVS history wrap/order/corruption/dual metadata recovery, and bounded history windows for empty, partial, full, and wrapped rings.
+
+## Dashboard watchdog regression
+
+Test a full 512-record ring with the following sequence:
+
+1. keep the maintenance AP active without HTTP traffic as the control;
+2. request status, config, and logs separately;
+3. load `/`, one 100-point chart, and a 12-entry page;
+4. navigate every page through all 512 records and verify chronological order;
+5. leave the real browser dashboard open through the complete 300-second maintenance lifetime;
+6. start a dashboard response from a client that does not read, and verify it is aborted within 2.5 seconds;
+7. disconnect a chart client immediately, reconnect, and verify status still responds;
+8. confirm there is no TASK_WDT reset and that maintenance still exits at its original fixed deadline.
+
+The 2.1.0 forensic baseline reproduced the fault with only `GET /api/history`: status/config/log requests completed in 26–48 ms, while history advertised 10,106 bytes, returned zero bytes for 30 seconds, and triggered TASK_WDT. Firmware 2.1.1 must never use a watchdog-timeout increase as its acceptance criterion.
+
+## Offline history recovery
+
+Before debugging a field Node, stop the application in the ESP32-C3 ROM download loader and read the complete physical flash twice. Verify identical sizes and SHA-256 hashes, decode the partition table from offset `0x8000`, and independently read the actual `nvs_v2` offset/size. Run Espressif's `nvs_tool.py` on the copied NVS image, not the live device. In namespace `gathra-hist`, select the valid/newer `meta0` or `meta1` generation, calculate the oldest slot as `(head + 512 - count) % 512`, and validate every 38-byte record's magic, version, and FNV-1a checksum before exporting chronological CSV/JSON. Preserve the original images unchanged outside Git.
 
 The physical evidence below is the Firmware 2.0.0 / Protocol 2 regression baseline. Firmware 2.1.0 / Protocol 3 must complete its own RF HIL before release; automated builds alone are not recorded as hardware evidence.
 

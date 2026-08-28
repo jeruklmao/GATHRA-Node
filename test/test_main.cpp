@@ -6,6 +6,7 @@
 
 #include "command_processor.hpp"
 #include "filter.hpp"
+#include "history_query.hpp"
 #include "legacy_config_migration.hpp"
 #include "node_config.hpp"
 #include "nvs_history.hpp"
@@ -608,6 +609,44 @@ void test_history_metadata_power_loss_uses_previous_copy() {
   TEST_ASSERT_EQUAL_UINT16(1U, recovered.count());
 }
 
+void test_history_web_windows_are_bounded_for_all_ring_states() {
+  using namespace history_query;
+  Page result = page(0U, 0U, 0U);
+  TEST_ASSERT_EQUAL_UINT16(0U, result.returned);
+  TEST_ASSERT_FALSE(result.hasNext);
+
+  result = page(1U, 0U, 50U);
+  TEST_ASSERT_EQUAL_UINT16(kMaximumPageSize, result.limit);
+  TEST_ASSERT_EQUAL_UINT16(1U, result.returned);
+  TEST_ASSERT_FALSE(result.hasNext);
+
+  result = page(511U, 500U, 25U);
+  TEST_ASSERT_EQUAL_UINT16(11U, result.returned);
+  TEST_ASSERT_TRUE(result.hasPrevious);
+  TEST_ASSERT_FALSE(result.hasNext);
+
+  result = page(512U, 0U, UINT16_MAX);
+  TEST_ASSERT_EQUAL_UINT16(kMaximumPageSize, result.returned);
+  TEST_ASSERT_TRUE(result.hasNext);
+  TEST_ASSERT_EQUAL_UINT16(kMaximumPageSize, result.nextOffset);
+  result = page(512U, 500U, 25U);
+  TEST_ASSERT_EQUAL_UINT16(12U, result.returned);
+  TEST_ASSERT_FALSE(result.hasNext);
+
+  TEST_ASSERT_EQUAL_UINT16(0U, chartPointCount(0U, 100U));
+  TEST_ASSERT_EQUAL_UINT16(1U, chartPointCount(1U, 100U));
+  const uint16_t points = chartPointCount(512U, UINT16_MAX);
+  TEST_ASSERT_EQUAL_UINT16(kMaximumChartPoints, points);
+  TEST_ASSERT_EQUAL_UINT16(0U, chartIndex(512U, points, 0U));
+  TEST_ASSERT_EQUAL_UINT16(511U, chartIndex(512U, points, points - 1U));
+  uint16_t previous = 0U;
+  for (uint16_t i = 1U; i < points; ++i) {
+    const uint16_t current = chartIndex(512U, points, i);
+    TEST_ASSERT_GREATER_THAN_UINT16(previous, current);
+    previous = current;
+  }
+}
+
 void test_command_idempotency_and_storage_order() {
   FakeCommandEnvironment environment;
   CommandProcessor processor(environment);
@@ -707,6 +746,7 @@ int main(int, char**) {
   RUN_TEST(test_persistent_state_fresh_sequence_and_power_loss_safety);
   RUN_TEST(test_history_fresh_append_wrap_order_and_corruption);
   RUN_TEST(test_history_metadata_power_loss_uses_previous_copy);
+  RUN_TEST(test_history_web_windows_are_bounded_for_all_ring_states);
   RUN_TEST(test_command_idempotency_and_storage_order);
   RUN_TEST(test_command_not_applied_when_receipt_persistence_fails);
   RUN_TEST(test_filtering_and_config_migration_policy);
