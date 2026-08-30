@@ -1,9 +1,20 @@
 # Calibration
 
-Calibration remains an operator action in the maintenance dashboard. Place the monitored surface at the installation datum, run Measure Now until the accepted value is stable, then capture the current accepted distance or enter referenceDistanceMm explicitly.
+Calibration is an operator action in the maintenance dashboard. Place the
+monitored surface at the installation datum, run **Measure Now** until the
+accepted distance is stable, then capture that value or enter
+`referenceDistanceMm` explicitly.
 
-Derived water height is referenceDistanceMm minus acceptedDistanceMm. A missing reference produces the documented unavailable height sentinel and health flag; it does not invent a zero height.
+The Node derives:
 
-Protocol/config v1 migration preserves reference distance, installation range, battery factor/offset/thresholds, sensor filtering, and LoRa/ACK settings when the legacy record is valid. Schema-v2 configuration lives in nvs_v2 and survives complete hard-power cycles and OTA.
+```text
+waterHeightMm = referenceDistanceMm - acceptedDistanceMm
+```
 
-The seven-ping median/MAD, physical echo validation, DHT-based sound-speed compensation, Hampel history, rise/fall confirmation, and EMA remain the production measurement path. Their temporal baseline is now persisted in NVS, so obstacle filtering does not restart after every RTC-controlled power cycle.
+A zero reference means calibration is unset. Water height is then unavailable
+and the calibration health flag is set; firmware does not invent a zero height.
+
+The production measurement path uses physical echo validation, a seven-ping
+median/MAD burst, DHT-based sound-speed compensation, Hampel filtering,
+rise/fall confirmation, and EMA. The accepted distance and filter baseline are
+persisted in NVS across RTC-controlled hard-power cycles.

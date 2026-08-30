@@ -4,7 +4,7 @@ Browser OTA is available only in maintenance mode and writes the inactive partit
 
 Before accepting a reboot, firmware verifies that a PCF level latch is active, persists expectedReboot=OTA_REBOOT, retains the maintenance active/deadline state, and leaves TF/AF untouched. Upload chunks service the enabled loop watchdog without disabling protection.
 
-On reboot, the marker takes precedence over AF/TF and selects OTA_REBOOT maintenance. A PENDING_VERIFY image is marked valid only after configuration, v2 NVS, PCF communication, history, sensors and SX1278 initialization pass. ESP-IDF rollback remains enabled; the rollback-test build deliberately fails validation and must roll back to the previous slot.
+On reboot, the marker takes precedence over AF/TF and selects OTA_REBOOT maintenance. A PENDING_VERIFY image is marked valid only after configuration, v2 NVS, PCF communication, history, sensors and SX1278 initialization pass. ESP-IDF rollback remains enabled; the rollback-test build deliberately fails validation and must roll back to the other valid slot.
 
 If OTA occurs during an AF-held scheduled-maintenance window, the visible boot
 reason remains `OTA_REBOOT` as required by precedence. At shutdown the firmware

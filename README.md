@@ -1,113 +1,132 @@
 # GATHRA Node
 
-GATHRA Node firmware 2.1.1 implements LoRa Protocol 3 and true PCF8563-controlled hard-power cycling on an ESP32-C3 Super Mini. The ESP32 does not deep-sleep during normal production operation: it verifies the next RTC wake, clears the current level interrupt only at the final shutdown step, and the AO3401A removes power from the switched electronics.
+GATHRA Node firmware **2.1.1** measures flood-water distance and sends telemetry
+to one GATHRA Gateway over **LoRa Protocol 3**. It runs on an ESP32-C3 Super
+Mini with an SX1278, HY-SRF05 ultrasonic sensor, DHT22, PCF8563 RTC, battery
+monitor, and active-HIGH buzzer.
 
-The authoritative wiring is docs/hardware/GATHRA_netlist.xml. Current GPIO assignments are centralized in include/board_pins.hpp:
+The PCF8563 and AO3401A control the production hard-power lifecycle. Normal
+polling does not use ESP deep sleep: firmware verifies the next RTC wake,
+clears the active RTC interrupt only during the final shutdown transaction,
+and then external power is removed from the switched electronics.
+
+## Hardware
+
+`include/board_pins.hpp` is the wiring authority.
 
 | GPIO | Function |
 | ---: | --- |
 | 0 | battery ADC |
 | 1, 3 | SX1278 RST, DIO0 |
 | 4, 5, 6, 7 | SX1278 SCK, MISO, MOSI, NSS |
-| 8, 9 | PCF8563 SDA, SCL with ESP internal pull-ups |
+| 8, 9 | PCF8563 SDA, SCL |
 | 10 | DHT22 data |
 | 20, 21 | HY-SRF05 trigger, echo |
 | 2 | active-HIGH buzzer |
 
-There is no ESP button input. The physical button only pulls the P-channel MOSFET gate low. On a manual boot, firmware creates a fast PCF8563 TF level latch, verifies it, beeps twice, and opens the maintenance AP. The AP password remains sman35jakarta and its maximum lifetime is 300 seconds.
+The physical maintenance button pulls the power-latch gate low; it is not an
+ESP32 input. A manual power-up establishes and verifies an RTC timer latch,
+then opens the node-local maintenance access point. See
+[hardware](docs/hardware/README.md) and [power management](docs/power-management.md).
 
-## Runtime
+## Measurement and telemetry
 
-A normal RTC timer boot performs battery, DHT22, seven-ping sonar acquisition, median/MAD and persistent temporal filtering, allocates and persists its sequence before RF transmission, sends v3 telemetry containing the persisted calibration reference, accepts only a matching v3 ACK, applies trusted Gateway UTC and an optional durable command, persists history/state, rearms the one-minute RTC timer, and releases external power.
-
-Supported commands are ENTER_MAINTENANCE_NOW, SCHEDULE_MAINTENANCE_AT, and SET_POLL_INTERVAL_MINUTES. Commands are persisted before side effects and duplicate IDs re-send the stored result.
-
-See docs/power-management.md, docs/pcf8563.md, docs/protocol.md, and docs/architecture.md.
-
-## Build and test
-
-~~~bash
-pio test -e native
-pio run -e esp32-c3-devkitm-1
-pio run -e hil
-~~~
-
-Use the exact USB serial by-id path after positively mapping the board; never assume ttyACM numbering. The hil profile forces the dashboard on while retaining the real boot classification. USB can validate register/state logic but cannot prove battery-rail power removal.
-
-## Persistent storage
-
-Flash is 4 MiB with two 1.5 MiB OTA slots. A legacy 20 KiB NVS partition is retained read-only as a Protocol/config v1 migration source; all current configuration/state/history uses the 896 KiB `nvs_v2` partition. History uses 512 fixed 38-byte circular slots plus dual generation metadata: 8 h 32 min at one-minute polling or 3 d 13 h 20 min at the ten-minute default.
-
-The maintenance dashboard never materializes or transmits the whole history ring. Full records use a 12-entry paginated API, charts use at most 100 uniformly downsampled points, and history is loaded only on entry or explicit refresh. Dashboard writes are divided into bounded socket chunks with a 2.5-second request deadline so a slow or disconnected client cannot starve `loopTask`.
-
-The following survive complete power removal: Node ID/configuration and calibration, persistent session and next sequence, filter/EMA/candidate state, history, poll interval, one-shot maintenance target, RTC sync metadata, command receipt/result, reboot marker, maintenance deadline, and eight bounded power diagnostics.
-
-## Safety limitations
-
-Normal boots follow one orchestrated lifecycle:
+A normal timer wake performs this bounded sequence:
 
 ```text
-BOOT → ACQUIRE → FILTER → [VERIFY] → TRANSMIT → SLEEP
-  └──────────────── button/GPIO wake ───────────→ MAINTENANCE
+battery -> DHT/environment -> ultrasonic burst -> filter/verify
+        -> persist sequence -> Protocol 3 telemetry/ACK
+        -> persist history/state -> program next RTC wake -> power off
 ```
 
-Acquisition is deliberately sequential: battery, DHT/environment snapshot, seven-ping sonar burst, filtering/verification, then LoRa TX/ACK. DHT failure falls back to reference acoustic conversion and sets health flags rather than disabling sonar. Suspicious changes are retained as raw data and verified before they can affect the EMA.
+The default ultrasonic burst uses seven pings with at least five valid samples.
+Firmware calculates median distance and MAD, applies temperature/humidity sound
+speed compensation when available, then uses Hampel filtering, rise/fall
+confirmation, and EMA smoothing. `rawDistanceMm` is the burst median;
+`acceptedDistanceMm` is the stable filtered value used for water-height
+derivation.
 
-The default normal interval is 60 seconds. Uncertain or changing measurements schedule a 12-second recheck. Timer and active-low GPIO2 wake sources are armed before deep sleep.
+`referenceDistanceMm` is an operator-configured installation datum. A value of
+zero means it is unset. When both reference and accepted distance are available:
 
-## Maintenance mode
+```text
+waterHeightMm = referenceDistanceMm - acceptedDistanceMm
+```
 
-Pressing the button wakes the sleeping node into maintenance or requests maintenance at the next safe boundary while awake. In maintenance, a two-second button hold exits to sleep.
+Protocol 3 telemetry includes raw and accepted distance, environmental and
+battery measurements, filter/quality/health diagnostics, RTC and schedule
+state, command result state, poll interval, and the Node reference distance.
+The exact wire layout is documented in [protocol.md](docs/protocol.md).
 
-The node starts a WPA2 SoftAP:
+The default poll interval is **10 minutes** and the configured range is 1–255
+minutes. A measurement that requires a quicker follow-up is scheduled at the
+one-minute minimum supported by the RTC timer.
 
-- SSID: `GATHRA-NODE-<node-id suffix>`
-- Password: `sman35jakarta`
-- Dashboard: `http://192.168.4.1/`
+## Commands and persistence
 
-The password is intentionally hardcoded and not editable in v1. This is a known v1 security limitation, not a secret. The dashboard has no additional login and should only be exposed through the node-local AP.
+The Gateway can include one command in a matching ACK:
 
-The dashboard is self-contained: no CDN, DNS, or internet access is required. It provides status, real production-pipeline measurements, RTC history graphing, full runtime configuration, calibration, LoRa tests, bounded logs, OTA, reboot, and exit controls. Passive status/history/log polling does not refresh the default five-minute inactivity timeout; actual interaction does.
+- `ENTER_MAINTENANCE_NOW`
+- `SCHEDULE_MAINTENANCE_AT`
+- `SET_POLL_INTERVAL_MINUTES`
 
-## Configuration and identity
+Command receipt and result are persisted before reporting success. Repeated
+command IDs return the stored result without repeating the side effect.
 
-`NodeConfig` is validated before application and stored in NVS with schema, size, and checksum checks. Invalid or incompatible storage falls back to safe documented defaults. Radio changes use apply/test/save with rollback to the previous settings on initialization failure.
+The `nvs_v2` partition stores validated configuration, persistent session and
+next sequence, filter state, 512 measurement-history records, maintenance and
+RTC state, command state, OTA markers, and bounded power diagnostics. These
+records survive complete external power removal.
 
-The default logical ID is deterministic: `GTH-` followed by the 12 uppercase hexadecimal Wi-Fi MAC digits, for example `GTH-10003BD4BCFC`. A customized logical ID is stored in NVS. The immutable MAC remains separately visible.
+## Maintenance dashboard
 
-No mounting reference is invented. Raw distance works without calibration, while derived water height remains unavailable until a reference is explicitly entered or captured from a stable accepted measurement.
+Maintenance mode provides a self-contained node-local dashboard for status,
+measurement, calibration, configuration, LoRa diagnostics, bounded logs,
+history, OTA, reboot, and controlled power-off. Its configured lifetime is
+60–300 seconds and defaults to 300 seconds; passive polling does not extend it.
+
+History is bounded at every interface:
+
+- `GET /api/history?offset=0&limit=12` returns chronological pages; default and
+  maximum page size are 12.
+- `GET /api/history/chart?series=rawDistanceMm&maxPoints=100` returns at most
+  100 uniformly sampled points while retaining the endpoints.
+- the dashboard loads history on entry or explicit refresh and does not poll
+  full records in the background.
+
+See [dashboard.md](docs/dashboard.md) for the current endpoint contract.
 
 ## OTA
 
-Upload PlatformIO's `.pio/build/esp32-c3-devkitm-1/firmware.bin` from the dashboard. The inactive slot is written through the Arduino `Update` API. Native ESP-IDF rollback support is enabled in the installed SDK. Arduino's early auto-validation is overridden; a pending image is marked valid only after configuration, retained-state, and partition-layout boot checks pass. The OTA reboot sets a durable one-shot NVS marker (with RTC fallback) to return to maintenance, then consumes it after the validated reboot.
+Browser OTA writes PlatformIO's
+`.pio/build/esp32-c3-devkitm-1/firmware.bin` to the inactive application slot.
+A pending image is marked valid only after configuration, NVS, partition,
+RTC, history, sensor, and radio initialization checks pass. OTA and maintenance
+reboots preserve the active RTC latch and remaining maintenance deadline. See
+[ota.md](docs/ota.md).
 
-See `docs/ota.md` for the controlled rollback-test profile and recovery procedure.
+## Build and test
 
-## Initial field-tuning defaults
+```bash
+pio test -e native
+pio run -e esp32-c3-devkitm-1
+pio run -e hil
+```
 
-These are conservative engineering starting points, not scientifically finalized site thresholds:
+The `hil` profile forces maintenance mode for hardware checks. Hardware flashing
+and battery-rail validation require a positively identified board and are not
+performed by the automated commands. See [testing.md](docs/testing.md).
 
-- sonar: 7 pings, minimum 5 valid, 60 ms spacing
-- Hampel: 7 accepted samples, K = 3, 50 mm absolute floor
-- sudden change: 100 mm
-- apparent rise: 5 observations, 4 confirmations, 2 s, 75 mm tolerance
-- apparent fall: 5 observations, 4 confirmations, 5 s, 100 mm tolerance
-- EMA alpha: 0.25, applied only after verification
-- normal/changing wake: 60 s / 12 s
-- battery low/critical: 3500 / 3300 mV (engineering defaults; chemistry-specific control is intentionally absent)
-- LoRa: 433.0 MHz, 125 kHz, SF10, CR 4/6, 17 dBm, sync `0x12`
-- ACK: 1800 ms, two retries after the initial attempt (three total)
-- maintenance timeout: 300 s
+## Safety and security
 
-All are dashboard-editable except physical pins and the AP password.
+Protocol 3 uses radio CRC but does not provide encryption or Node
+authentication. Pairing is an operational allow-list. The maintenance dashboard
+has no application-level login and must remain limited to the node-local WPA2
+network.
 
-## v1 boundaries
-
-v1 does not provide LoRa HMAC/node authentication, gateway hardware, backend ingestion, or end-to-end gateway ACK validation. Radio CRC detects transmission errors but is not authentication. Measurement/filter history is intentionally RTC-retained only: it survives deep sleep, not power loss, hard reset, or reflashing.
-
-Battery-only validation passes on the required GPIO0 divider input. Five consecutive production measurements reported raw ADC 1760–1768, divider voltage 1302–1305 mV, and reconstructed battery voltage 3906–3915 mV, with the `BATTERY_ADC_INVALID`, `BATTERY_LOW`, and `BATTERY_CRITICAL` flags all clear. Earlier near-zero USB-powered readings occurred while the battery was intentionally disconnected to prevent a power-rail conflict; they were not evidence of a wiring fault.
-
-Further details: [architecture](docs/architecture.md), [hardware](docs/hardware/README.md), [protocol](docs/protocol.md), [dashboard](docs/dashboard.md), [calibration](docs/calibration.md), [testing](docs/testing.md), and [OTA](docs/ota.md).
+GATHRA measurements and derived flood levels are modeled observations, not a
+public-safety guarantee. Missing, uncertain, or stale information must never be
+treated as evidence that an area is safe.
 
 ---
 

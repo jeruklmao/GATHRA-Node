@@ -10,7 +10,7 @@ A manual cold-power boot has neither AF nor TF. Firmware configures the timer at
 
 ## Normal timer
 
-Poll interval is stored as 1–255 minutes, default 10. Normal wakes use source 1/60 Hz and the configured count. A future maintenance alarm remains armed simultaneously.
+Poll interval is stored as 1–255 minutes, default 10. Normal wakes use source 1/60 Hz and the configured count. A pending maintenance alarm remains armed simultaneously.
 
 ## Final transaction
 

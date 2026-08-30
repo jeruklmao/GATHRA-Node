@@ -1,6 +1,9 @@
-# GATHRA LoRa Protocol v3
+# GATHRA LoRa Protocol 3
 
-Firmware 2.1.1 uses Protocol 3 exclusively. Protocol 3 is not backward compatible with Protocol 1 or 2, and there is no legacy parser or fallback. All multi-byte integers are unsigned big-endian unless marked signed; firmware encodes fields individually and never transmits a C++ struct. SX1278 CRC is enabled, but Protocol 3 does not provide HMAC, encryption, or node authentication.
+Firmware 2.1.1 uses Protocol 3 exclusively. All multi-byte integers are unsigned
+big-endian unless marked signed; firmware encodes fields individually and never
+transmits a C++ struct. SX1278 CRC is enabled, but Protocol 3 does not provide
+HMAC, encryption, or node authentication.
 
 ## Common header
 
